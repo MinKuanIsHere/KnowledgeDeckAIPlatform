@@ -1,0 +1,146 @@
+services:
+  frontend:
+    container_name: knowledgedeck_frontend
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+    depends_on:
+      - backend
+
+  backend:
+    container_name: knowledgedeck_backend
+    build:
+      context: ./backend
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - minio
+
+  worker:
+    container_name: knowledgedeck_worker
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - postgres
+      - qdrant
+      - minio
+
+  postgres:
+    container_name: knowledgedeck_postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-knowledgedeck}
+      POSTGRES_USER: ${POSTGRES_USER:-knowledgedeck}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    container_name: knowledgedeck_redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  qdrant:
+    container_name: knowledgedeck_qdrant
+    image: qdrant/qdrant:v1.12.1
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  minio:
+    container_name: knowledgedeck_minio
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  vllm_chat:
+    container_name: knowledgedeck_vllm_chat
+    image: vllm/vllm-openai:gemma4
+    profiles: ["gpu"]
+    ipc: host
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
+    ports:
+      - "${VLLM_CHAT_PORT:-8000}:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    command:
+      - --model
+      - ${LLM_MODEL:-google/gemma-4-E4B-it}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - ${VLLM_CHAT_GPU_MEMORY_UTILIZATION:-0.70}
+      - --max-model-len
+      - ${VLLM_CHAT_MAX_MODEL_LEN:-16384}
+      - --limit-mm-per-prompt
+      - image=0,audio=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vllm_embedding:
+    container_name: knowledgedeck_vllm_embedding
+    image: vllm/vllm-openai:latest
+    profiles: ["gpu"]
+    ipc: host
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
+    ports:
+      - "${VLLM_EMBEDDING_PORT:-8001}:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    command:
+      - --model
+      - ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.22}
+      - --max-model-len
+      - ${VLLM_EMBEDDING_MAX_MODEL_LEN:-8192}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  minio_data:
+  hf_cache:
