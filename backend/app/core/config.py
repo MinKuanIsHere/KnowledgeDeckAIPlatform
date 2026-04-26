@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://knowledgedeck_vllm_chat:8000/v1"
     llm_api_key: str = "local-dev-key"
     llm_model: str = "google/gemma-4-E4B-it"
+    # Display name shown in the UI header. Decoupled from llm_model so the
+    # internal model id (sent to vLLM) and the user-facing label can change
+    # independently.
+    llm_model_label: str = "Gemma 4 E4B"
 
     embedding_base_url: str = "http://knowledgedeck_vllm_embedding:8001/v1"
     embedding_api_key: str = "local-dev-key"

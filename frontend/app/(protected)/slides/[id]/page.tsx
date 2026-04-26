@@ -21,6 +21,7 @@ import remarkGfm from "remark-gfm";
 
 import { ChatInput } from "../../../../components/ChatInput";
 import { useKbStore } from "../../../../lib/kb-store";
+import { useLlmInfo } from "../../../../lib/llm-info";
 import { useSlideStore } from "../../../../lib/slide-store";
 import {
   type SlideMessage,
@@ -74,6 +75,7 @@ export default function SlideSessionPage() {
   const knowledgeBases = useKbStore((s) => s.kbs);
   const kbsLoaded = useKbStore((s) => s.loaded);
   const refreshKbs = useKbStore((s) => s.refresh);
+  const llmInfo = useLlmInfo();
 
   const session = sessions.find((s) => s.id === sessionId);
 
@@ -320,8 +322,11 @@ export default function SlideSessionPage() {
             <div className="mt-1 text-xs text-red-600">{renameError}</div>
           ) : null}
         </div>
+        <div className="ml-3 mr-3 shrink-0 text-xs text-muted-foreground">
+          Model: {llmInfo?.label ?? "…"}
+        </div>
         {session && !editing ? (
-          <div className="ml-3 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => {

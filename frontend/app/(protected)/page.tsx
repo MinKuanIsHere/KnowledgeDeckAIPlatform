@@ -15,6 +15,7 @@ import {
   streamChat,
 } from "../../lib/chat";
 import { useKbStore } from "../../lib/kb-store";
+import { useLlmInfo } from "../../lib/llm-info";
 
 export default function ChatPage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function ChatPage() {
   const knowledgeBases = useKbStore((s) => s.kbs);
   const kbsLoaded = useKbStore((s) => s.loaded);
   const refreshKbs = useKbStore((s) => s.refresh);
+  const llmInfo = useLlmInfo();
 
   const [streamingText, setStreamingText] = useState("");
   const [streamingCitations, setStreamingCitations] = useState<Citation[] | null>(null);
@@ -152,7 +154,9 @@ export default function ChatPage() {
     <section className="flex h-full flex-col">
       <header className="flex h-14 items-center justify-between border-b border-border bg-white/80 px-4">
         <div className="text-sm font-medium">{activeSessionTitle}</div>
-        <div className="text-xs text-muted-foreground">Model: Gemma 4 E4B</div>
+        <div className="text-xs text-muted-foreground">
+          Model: {llmInfo?.label ?? "…"}
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto px-4 py-6">
