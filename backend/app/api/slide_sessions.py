@@ -81,6 +81,11 @@ class RenderRequest(BaseModel):
     language: str = Field(default="English", max_length=64)
 
 
+class RenderResponse(BaseModel):
+    session: "SessionOut"
+    message: "MessageOut"
+
+
 def _session_out(s: SlideSession) -> SessionOut:
     return SessionOut(
         id=s.id,
@@ -302,31 +307,34 @@ async def stream_session(
 # --- Render via Presenton ---
 
 
-@router.post("/{session_id}/render", response_model=SessionOut)
+@router.post("/{session_id}/render", response_model=RenderResponse)
 async def render_session(
     session_id: int,
     body: RenderRequest,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> SessionOut:
+) -> RenderResponse:
+    """Render the latest confirmed outline via Presenton.
+
+    Always returns 200 — both success and Presenton-side failure produce a
+    persisted assistant message in the conversation. Only true 4xx
+    (no outline yet, unparseable) raise HTTPException. Frontend appends the
+    returned `message` directly to its local message list, then on later
+    page loads the persisted row reappears in the natural history order.
+    """
+    started = datetime.now(timezone.utc)
     s = await _load_owned_session(
         session, owner_user_id=user.id, session_id=session_id, with_messages=True
     )
     outline_md = _extract_outline(list(s.messages))
     if outline_md is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="no_outline_ready",
-        )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="no_outline_ready")
     slide_blocks = _split_slide_blocks(outline_md)
     if not slide_blocks:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="outline_unparsable",
-        )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="outline_unparsable")
 
     s.status = SlideStatus.RENDERING
-    s.updated_at = datetime.now(timezone.utc)
+    s.updated_at = started
     await session.commit()
 
     presenton = get_presenton_client()
@@ -343,12 +351,23 @@ async def render_session(
             raise PresentonError("presenton response missing 'path'")
         pptx_bytes = presenton.read_artifact(path)
     except Exception as exc:
+        elapsed = max(1, int((datetime.now(timezone.utc) - started).total_seconds()))
         logger.exception("presenton_render_failed session=%s", session_id)
         s.status = SlideStatus.FAILED
-        await session.commit()
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, detail=f"presenton_failed: {exc}"
+        s.updated_at = datetime.now(timezone.utc)
+        # Persist the failure as an assistant turn so the user sees it in the
+        # conversation log instead of as a transient banner.
+        msg_row = SlideMessage(
+            session_id=session_id,
+            role=SlideRole.ASSISTANT,
+            content=f"[RENDER_FAILED:{elapsed}] {str(exc)[:300]}",
+            citations=None,
         )
+        session.add(msg_row)
+        await session.commit()
+        await session.refresh(s)
+        await session.refresh(msg_row)
+        return RenderResponse(session=_session_out(s), message=_message_out(msg_row))
 
     # Persist the PPTX in MinIO under a stable key per session. New renders
     # overwrite, matching the file upload key layout.
@@ -361,12 +380,21 @@ async def render_session(
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
 
+    elapsed = max(1, int((datetime.now(timezone.utc) - started).total_seconds()))
     s.status = SlideStatus.RENDERED
     s.generated_pptx_key = key
     s.updated_at = datetime.now(timezone.utc)
+    msg_row = SlideMessage(
+        session_id=session_id,
+        role=SlideRole.ASSISTANT,
+        content=f"[RENDERED:{elapsed}] Your presentation is ready.",
+        citations=None,
+    )
+    session.add(msg_row)
     await session.commit()
     await session.refresh(s)
-    return _session_out(s)
+    await session.refresh(msg_row)
+    return RenderResponse(session=_session_out(s), message=_message_out(msg_row))
 
 
 @router.get("/{session_id}/download")

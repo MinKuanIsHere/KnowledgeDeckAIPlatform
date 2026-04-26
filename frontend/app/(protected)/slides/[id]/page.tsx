@@ -27,6 +27,7 @@ import {
   type SlideMessageCitation,
   downloadSlideSession,
   getSlideSession,
+  parseRenderMarker,
   renderSlideSession,
   streamSlideSession,
   stripOutlineReady,
@@ -84,15 +85,13 @@ export default function SlideSessionPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
 
-  // Render state lives entirely in the chat surface — no header button, no
-  // amber bar. While `phase === "rendering"`, the `elapsedSec` counter ticks
-  // every second so the user sees progress. The bubble flips to "rendered"
-  // (with Download) or "error" once the API call resolves.
+  // Render progress lives in the chat as a transient bubble that appears
+  // while the API call is in flight. Once the backend returns, the
+  // persisted [RENDERED:N]/[RENDER_FAILED:N] message takes its place in
+  // the regular message list — so this state is *only* "rendering or null".
   type RenderState =
     | null
-    | { phase: "rendering"; startedAt: number; elapsedSec: number }
-    | { phase: "rendered"; elapsedSec: number | null }
-    | { phase: "error"; elapsedSec: number; message: string };
+    | { startedAt: number; elapsedSec: number };
   const [renderState, setRenderState] = useState<RenderState>(null);
 
   const [editing, setEditing] = useState(false);
@@ -110,9 +109,9 @@ export default function SlideSessionPage() {
     if (!kbsLoaded) refreshKbs();
   }, [kbsLoaded, refreshKbs]);
 
-  // Load this session's messages whenever the route id changes. If the
-  // session was already rendered, seed renderState so the user sees a
-  // Download bubble at the bottom — otherwise reset to null.
+  // Load this session's messages whenever the route id changes. Past
+  // render results are persisted as [RENDERED:N] assistant messages, so
+  // they reappear naturally in the history — no special seeding here.
   useEffect(() => {
     if (!Number.isFinite(sessionId)) return;
     let cancelled = false;
@@ -122,9 +121,6 @@ export default function SlideSessionPage() {
         const detail = await getSlideSession(sessionId);
         if (cancelled) return;
         setMessages(detail.messages);
-        if (detail.has_pptx) {
-          setRenderState({ phase: "rendered", elapsedSec: null });
-        }
       } catch {
         if (!cancelled) setMessages([]);
       }
@@ -137,47 +133,39 @@ export default function SlideSessionPage() {
   // Tick the elapsed counter while a render is in flight so the user sees
   // visible progress instead of a static spinner.
   useEffect(() => {
-    if (renderState?.phase !== "rendering") return;
+    if (!renderState) return;
     const startedAt = renderState.startedAt;
     const id = window.setInterval(() => {
       setRenderState((cur) =>
-        cur && cur.phase === "rendering"
-          ? { ...cur, elapsedSec: Math.round((Date.now() - startedAt) / 1000) }
-          : cur,
+        cur ? { ...cur, elapsedSec: Math.round((Date.now() - startedAt) / 1000) } : cur,
       );
     }, 1000);
     return () => window.clearInterval(id);
-  }, [renderState?.phase, renderState && renderState.phase === "rendering"
-      ? renderState.startedAt
-      : null]);
+  }, [renderState?.startedAt]);
 
   // Auto-scroll on new content.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText, isStreaming]);
 
-  // Triggered when the assistant emits [OUTLINE_READY]. Kicks off Presenton
-  // render and folds the result back into the local renderState + the
-  // shared slide store. Any error is shown inside the render bubble.
+  // Triggered when the assistant emits [OUTLINE_READY]. Calls Presenton,
+  // appends the persisted result message into the chat, and clears the
+  // transient progress bubble. Network/HTTP errors show as a stream error
+  // banner since they bypass the persisted message path.
   const triggerRender = useCallback(async () => {
     const startedAt = Date.now();
-    setRenderState({ phase: "rendering", startedAt, elapsedSec: 0 });
+    setRenderState({ startedAt, elapsedSec: 0 });
     try {
-      const updated = await renderSlideSession(sessionId);
+      const result = await renderSlideSession(sessionId);
       patchSession(sessionId, {
-        status: updated.status,
-        has_pptx: updated.has_pptx,
+        status: result.session.status,
+        has_pptx: result.session.has_pptx,
       });
-      setRenderState({
-        phase: "rendered",
-        elapsedSec: Math.round((Date.now() - startedAt) / 1000),
-      });
+      setMessages((cur) => [...cur, result.message]);
     } catch (err) {
-      setRenderState({
-        phase: "error",
-        elapsedSec: Math.round((Date.now() - startedAt) / 1000),
-        message: detailMessage(err),
-      });
+      setStreamError(detailMessage(err));
+    } finally {
+      setRenderState(null);
     }
   }, [sessionId, patchSession]);
 
@@ -372,7 +360,11 @@ export default function SlideSessionPage() {
             </div>
           ) : null}
           {messages.map((m) => (
-            <SlideBubble key={m.id} message={m} />
+            <SlideBubble
+              key={m.id}
+              message={m}
+              onDownload={handleDownload}
+            />
           ))}
           {isStreaming ? (
             <SlideBubble
@@ -384,13 +376,13 @@ export default function SlideSessionPage() {
                 created_at: new Date().toISOString(),
               }}
               streaming
+              onDownload={handleDownload}
             />
           ) : null}
-          {/* Render progress / completion / error all shown as an inline
-              bubble so the entire flow stays in the conversation surface. */}
-          {renderState ? (
-            <RenderBubble state={renderState} onDownload={handleDownload} />
-          ) : null}
+          {/* Transient bubble — only present while a render is in flight.
+              Once the API returns, the persisted [RENDERED:N] message in
+              `messages` takes its place. */}
+          {renderState ? <RenderingBubble elapsedSec={renderState.elapsedSec} /> : null}
           {streamError ? (
             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               Stream error: {streamError}
@@ -402,28 +394,22 @@ export default function SlideSessionPage() {
 
       <ChatInput
         knowledgeBases={knowledgeBases}
-        disabled={isStreaming || renderState?.phase === "rendering"}
+        disabled={isStreaming || renderState !== null}
         onSend={handleSend}
       />
     </section>
   );
 }
 
-function RenderBubble({
-  state,
-  onDownload,
-}: {
-  state:
-    | { phase: "rendering"; startedAt: number; elapsedSec: number }
-    | { phase: "rendered"; elapsedSec: number | null }
-    | { phase: "error"; elapsedSec: number; message: string };
-  onDownload: () => void;
-}) {
-  function formatElapsed(s: number): string {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${sec}s`;
-  }
+function formatElapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${sec}s`;
+}
+
+/** Transient bubble shown only while a render is in flight. Disappears
+ * the instant the persisted [RENDERED:N] message arrives in `messages`. */
+function RenderingBubble({ elapsedSec }: { elapsedSec: number }) {
   return (
     <div className="flex items-start gap-2">
       <div
@@ -432,45 +418,15 @@ function RenderBubble({
       >
         <Sparkles className="h-4 w-4" />
       </div>
-      <div className="flex flex-col gap-1">
-        <div className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
-          {state.phase === "rendering" ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>
-                Rendering presentation via Presenton…{" "}
-                <span className="text-muted-foreground">
-                  ({formatElapsed(state.elapsedSec)})
-                </span>
-              </span>
-            </div>
-          ) : state.phase === "rendered" ? (
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <span>
-                {state.elapsedSec != null
-                  ? `Rendered in ${formatElapsed(state.elapsedSec)}.`
-                  : "Latest render is ready."}
-              </span>
-              <button
-                type="button"
-                onClick={onDownload}
-                className="ml-2 inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-1 text-xs text-white hover:bg-foreground/90"
-              >
-                <Download className="h-3.5 w-3.5" /> Download .pptx
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-start gap-2 text-red-700">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <div>
-                  Render failed after {formatElapsed(state.elapsedSec)}.
-                </div>
-                <div className="mt-1 text-xs">{state.message}</div>
-              </div>
-            </div>
-          )}
+      <div className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>
+            Rendering presentation via Presenton…{" "}
+            <span className="text-muted-foreground">
+              ({formatElapsed(elapsedSec)})
+            </span>
+          </span>
         </div>
       </div>
     </div>
@@ -501,13 +457,72 @@ function StatusBadge({
 function SlideBubble({
   message,
   streaming = false,
+  onDownload,
 }: {
   message: SlideMessage;
   streaming?: boolean;
+  onDownload: () => void;
 }) {
   const isUser = message.role === "user";
   const ts = formatTimestamp(message.created_at);
-  const display = isUser ? message.content : stripOutlineReady(message.content);
+
+  // Detect [RENDERED:N] / [RENDER_FAILED:N] markers on assistant turns and
+  // render the special UI inline. Chat turns fall through to the regular
+  // markdown body renderer below.
+  const marker = !isUser ? parseRenderMarker(message.content) : { kind: "chat" as const, body: message.content };
+
+  if (marker.kind === "rendered") {
+    return (
+      <div className="flex items-start gap-2">
+        <Avatar isUser={false} />
+        <div className="flex flex-col gap-1">
+          <div className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>
+                {marker.body || "Your presentation is ready."}{" "}
+                <span className="text-muted-foreground">
+                  (rendered in {formatElapsed(marker.elapsedSec)})
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={onDownload}
+                className="inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-1 text-xs text-white hover:bg-foreground/90"
+              >
+                <Download className="h-3.5 w-3.5" /> Download .pptx
+              </button>
+            </div>
+          </div>
+          <div className="px-1 text-[10px] text-muted-foreground">{ts}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (marker.kind === "render_failed") {
+    return (
+      <div className="flex items-start gap-2">
+        <Avatar isUser={false} />
+        <div className="flex flex-col gap-1">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <div>Render failed after {formatElapsed(marker.elapsedSec)}.</div>
+                {marker.body ? (
+                  <div className="mt-1 text-xs">{marker.body}</div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <div className="px-1 text-[10px] text-muted-foreground">{ts}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const display = isUser ? message.content : stripOutlineReady(marker.body);
   return (
     <div
       className={`flex items-start gap-2 ${

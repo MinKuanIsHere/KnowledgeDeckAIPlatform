@@ -139,11 +139,16 @@ export async function streamSlideSession(
   }
 }
 
+export type RenderResponse = {
+  session: SlideSession;
+  message: SlideMessage;
+};
+
 export async function renderSlideSession(
   sessionId: number,
   opts?: { template?: string; language?: string },
-): Promise<SlideSession> {
-  const res = await api.post<SlideSession>(
+): Promise<RenderResponse> {
+  const res = await api.post<RenderResponse>(
     `/slide-sessions/${sessionId}/render`,
     {
       template: opts?.template ?? "general",
@@ -151,6 +156,39 @@ export async function renderSlideSession(
     },
   );
   return res.data;
+}
+
+/**
+ * Persisted render-status messages carry one of these markers in their
+ * content. Frontend strips the marker and renders a Download button (or
+ * an error block) inline with the rest of the chat.
+ */
+const RENDERED_MARKER_RE = /^\[RENDERED:(\d+)\]\s*/;
+const RENDER_FAILED_MARKER_RE = /^\[RENDER_FAILED:(\d+)\]\s*/;
+
+export type RenderMarker =
+  | { kind: "chat"; body: string }
+  | { kind: "rendered"; elapsedSec: number; body: string }
+  | { kind: "render_failed"; elapsedSec: number; body: string };
+
+export function parseRenderMarker(content: string): RenderMarker {
+  let m = RENDERED_MARKER_RE.exec(content);
+  if (m) {
+    return {
+      kind: "rendered",
+      elapsedSec: Number(m[1]),
+      body: content.slice(m[0].length),
+    };
+  }
+  m = RENDER_FAILED_MARKER_RE.exec(content);
+  if (m) {
+    return {
+      kind: "render_failed",
+      elapsedSec: Number(m[1]),
+      body: content.slice(m[0].length),
+    };
+  }
+  return { kind: "chat", body: content };
 }
 
 export async function downloadSlideSession(
