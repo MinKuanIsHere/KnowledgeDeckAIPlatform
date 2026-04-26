@@ -18,6 +18,9 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    volumes:
+      # Read PPTX artifacts that Presenton wrote without proxying via HTTP.
+      - presenton_data:/presenton_data:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,6 +104,26 @@ services:
         aliases:
           - knowledgedeck-minio
 
+  presenton:
+    container_name: knowledgedeck_presenton
+    image: ghcr.io/presenton/presenton:latest
+    environment:
+      LLM: custom
+      CUSTOM_LLM_URL: ${LLM_BASE_URL}
+      CUSTOM_LLM_API_KEY: ${LLM_API_KEY}
+      CUSTOM_MODEL: ${LLM_MODEL}
+      # mem0 (Presenton's memory layer) hard-codes a lookup for OPENAI_API_KEY
+      # at init even when we use a custom LLM. A placeholder value satisfies
+      # the constructor; mem0's actual outbound calls go through CUSTOM_LLM_URL.
+      OPENAI_API_KEY: ${LLM_API_KEY}
+      AUTH_USERNAME: ${PRESENTON_USERNAME:-admin}
+      AUTH_PASSWORD: ${PRESENTON_PASSWORD:-change-me-please}
+      DISABLE_IMAGE_GENERATION: "true"
+    ports:
+      - "5001:80"
+    volumes:
+      - presenton_data:/app_data
+
   vllm_chat:
     container_name: knowledgedeck_vllm_chat
     image: vllm/vllm-openai:v0.19.1-x86_64-cu130
@@ -168,5 +191,6 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
+  presenton_data:
   minio_data:
   hf_cache:

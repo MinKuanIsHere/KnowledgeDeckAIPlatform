@@ -5,7 +5,6 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy import (
     BigInteger,
-    Boolean,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
@@ -173,24 +172,74 @@ class ChatMessage(Base):
     session: Mapped[ChatSession] = relationship(back_populates="messages")
 
 
-class SlideProject(Base):
-    __tablename__ = "slide_projects"
+class SlideStatus(enum.Enum):
+    OUTLINING = "outlining"
+    RENDERING = "rendering"
+    RENDERED = "rendered"
+    FAILED = "failed"
+
+
+class SlideRole(enum.Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class SlideSession(Base):
+    __tablename__ = "slide_sessions"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     owner_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=False
     )
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    use_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # JSONB list of int kb_ids, or NULL meaning "all KBs of the owner".
-    kb_ids: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
-    # MVP mock: plain-text outline. When Presenton lands this becomes a
-    # storage_key pointing at a real PPTX in MinIO.
-    outline: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="New deck")
+    status: Mapped[SlideStatus] = mapped_column(
+        SAEnum(
+            SlideStatus,
+            name="slide_status",
+            create_type=False,
+            values_callable=lambda enum_cls: [m.value for m in enum_cls],
+        ),
+        nullable=False,
+        default=SlideStatus.OUTLINING,
+    )
+    # MinIO object key for the most recently rendered PPTX, NULL until first
+    # successful render. New renders overwrite the key.
+    generated_pptx_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    messages: Mapped[list["SlideMessage"]] = relationship(
+        back_populates="session", order_by="SlideMessage.id"
+    )
+
+
+class SlideMessage(Base):
+    __tablename__ = "slide_messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("slide_sessions.id"), nullable=False
+    )
+    role: Mapped[SlideRole] = mapped_column(
+        SAEnum(
+            SlideRole,
+            name="slide_role",
+            create_type=False,
+            values_callable=lambda enum_cls: [m.value for m in enum_cls],
+        ),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    session: Mapped[SlideSession] = relationship(back_populates="messages")

@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://knowledgedeck_qdrant:6333"
     qdrant_collection: str = "knowledgedeck"
 
+    # Presenton (PPTX rendering) — runs as a separate compose service. The
+    # shared volume mounted at presenton_data_root lets backend read PPTX
+    # files Presenton wrote without proxying via HTTP.
+    presenton_url: str = "http://knowledgedeck_presenton:80"
+    presenton_username: str = "admin"
+    presenton_password: str = "change-me-please"
+    presenton_data_root: str = "/presenton_data"
+
     # Chunking knobs (character-based, simple). Bigger overlap reduces
     # mid-sentence cuts at the cost of more vectors per file.
     chunk_chars: int = 1200
