@@ -1,0 +1,64 @@
+PostgreSQL indexing: when to add an index and which kind
+
+An index is a separate on-disk structure that maps column values back
+to row locations (TIDs in PostgreSQL). It speeds up reads at the cost
+of slower writes (every INSERT/UPDATE/DELETE must update the index)
+and additional disk space.
+
+Index types
+-----------
+
+- B-tree (default): suitable for equality and range queries on ordered
+  data. Used for primary keys and most foreign keys automatically.
+- Hash: equality only. Rarely used; B-tree is almost always as good.
+- GIN: for composite values like jsonb, arrays, full-text search.
+- GiST: for geometric and full-text data; supports nearest-neighbor
+  queries.
+- BRIN: very compact; good for huge tables with naturally clustered
+  values like time-series data.
+
+Partial indexes
+---------------
+
+A partial index includes only rows matching a WHERE predicate:
+
+  CREATE UNIQUE INDEX uq_kb_name_active
+    ON knowledge_bases (owner_user_id, name)
+    WHERE deleted_at IS NULL;
+
+This is the canonical pattern for soft-deleted tables: the unique
+constraint applies only to active rows, so deleting a row frees its
+name for reuse without having to physically remove it.
+
+Multi-column indexes
+--------------------
+
+Order matters. An index on (a, b) supports queries that filter on a
+alone and on (a, b), but not on b alone. Put the most-filtered column
+first; PostgreSQL can scan the leading columns of a multi-column index
+but cannot skip them.
+
+Maintenance
+-----------
+
+Indexes get bloated over time as updates fragment the B-tree. Run
+REINDEX periodically on hot tables, or use pg_repack for online
+rebuilds. Watch pg_stat_user_indexes.idx_scan to find indexes that are
+never used; they are pure overhead and should be dropped.
+
+EXPLAIN ANALYZE
+---------------
+
+Always check the actual plan, not what you assume. EXPLAIN ANALYZE
+runs the query and reports the chosen plan plus timing. Look for "Seq
+Scan" on large tables — that usually means a missing or unusable
+index. "Index Cond" indicates the index was used for filtering.
+
+Common mistakes
+---------------
+
+- Indexing every column "just in case" — slows down writes and wastes
+  storage. Only index columns you actually filter on.
+- Functional queries (WHERE lower(email) = $1) skip an index on email.
+  Either index the expression: CREATE INDEX ON users (lower(email)),
+  or store a normalized column.

@@ -1,0 +1,48 @@
+Python asyncio: cooperative concurrency on a single thread
+
+asyncio is the standard library module for writing concurrent code in
+Python using the async/await syntax. It runs a single event loop that
+multiplexes coroutines, so blocking work (network IO, file IO, sleeping)
+yields back to the loop and lets other coroutines make progress.
+
+Key building blocks:
+
+- async def: declares a coroutine function. Calling it returns a coroutine
+  object; it does not execute the body.
+- await: suspends the current coroutine until the awaited awaitable
+  completes. You can only use await inside an async def.
+- asyncio.run(coro): the canonical entry point. Creates an event loop,
+  runs the coroutine to completion, and closes the loop.
+- asyncio.gather(*coros): runs multiple awaitables concurrently and
+  collects their results in order.
+- asyncio.create_task(coro): schedules the coroutine to run on the
+  loop and returns a Task. Useful when you want concurrency without
+  awaiting immediately.
+- asyncio.to_thread(fn, *args): offloads a synchronous, blocking
+  function to the default thread executor. Use this to wrap libraries
+  that do not provide async APIs (the minio-py client, for example).
+
+When NOT to use asyncio:
+
+- CPU-bound work. asyncio cooperatively yields on IO, but a long
+  CPU-bound coroutine will starve the loop. For CPU-bound parallelism
+  use multiprocessing or concurrent.futures.ProcessPoolExecutor.
+- Calling sync libraries that perform their own internal blocking IO
+  without yielding. They will block the event loop just like CPU-bound
+  code. Wrap them with asyncio.to_thread.
+
+Common pitfalls:
+
+- Forgetting to await a coroutine. Calling foo() instead of await foo()
+  produces a coroutine object that is never run; you will see a
+  RuntimeWarning at exit.
+- Mixing sync and async by calling asyncio.run() from inside an already
+  running loop. Use create_task instead.
+- Catching CancelledError silently. Cancellation is a feature, not an
+  error condition; only catch it if you intend to do cleanup, then
+  re-raise.
+
+Performance tip: a single asyncio event loop is fast for IO-bound work
+but does not scale across CPU cores. If you need both, run multiple
+worker processes (uvicorn --workers N) and let each one own its event
+loop. FastAPI, Starlette, and aiohttp all support this pattern.

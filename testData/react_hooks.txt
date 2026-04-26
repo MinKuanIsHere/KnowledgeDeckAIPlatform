@@ -1,0 +1,62 @@
+React Hooks: state and effects in function components
+
+Hooks were introduced in React 16.8 to give function components access to
+state, lifecycle, and context without converting them to classes. The
+core hooks are useState, useEffect, useRef, useMemo, useCallback, and
+useContext.
+
+useState
+--------
+
+useState(initialValue) returns a [value, setter] tuple. The setter
+queues a re-render with the new value. The initial value can be a
+function ("lazy initialization") which runs only on the first render —
+useful for expensive computations:
+
+  const [items, setItems] = useState(() => loadItemsFromStorage());
+
+setState updates are batched within event handlers and effects (since
+React 18), so multiple setters in the same tick produce one re-render.
+
+useEffect
+---------
+
+useEffect(fn, deps) runs `fn` after the component renders. The optional
+`deps` array controls when it re-runs:
+
+- omitted: every render
+- []: once after first mount
+- [a, b]: when a or b changes (Object.is comparison)
+
+Returning a cleanup function from `fn` runs it before the next effect
+or on unmount. Use this for unsubscribing event listeners, aborting
+fetches, or clearing timers.
+
+The effect runs AFTER the browser paints, so it does not block the
+visual update. For synchronous DOM measurements use useLayoutEffect
+instead.
+
+Common pitfalls
+---------------
+
+- Stale closures: an effect captures the values of its deps at the time
+  it ran. If a deps array misses a value the closure references, the
+  effect will use a stale value forever. The exhaustive-deps lint rule
+  catches most of these.
+- Infinite loops: setting state inside an effect that does not have the
+  state in its deps array will loop forever. Either add the state to
+  deps and add a guard, or move the logic into an event handler.
+- Subscribing without cleanup: forgetting the cleanup function leaks
+  listeners, especially with WebSocket and EventSource.
+
+Performance hooks
+-----------------
+
+useMemo(fn, deps) memoizes a computed value. useCallback(fn, deps)
+memoizes a function reference. Use these only when the consumer is
+performance-sensitive (a large memoized child, or a Context value); the
+overhead of the dependency check is usually larger than the saved work.
+
+When you find yourself reaching for useMemo/useCallback in most
+components, the underlying problem is usually too many re-renders from
+poorly placed state, not missing memoization.

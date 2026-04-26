@@ -1,0 +1,75 @@
+Kubernetes basics: pods, deployments, services
+
+Kubernetes orchestrates containerized workloads across a cluster of
+machines. The unit of deployment is the Pod, but you almost never
+create Pods directly — instead you declare a higher-level controller
+and let Kubernetes manage the Pods for you.
+
+Pod
+---
+
+A Pod is one or more containers that share network namespace, storage
+volumes, and lifecycle. Containers in the same Pod can talk to each
+other on localhost. Pods are ephemeral: they get an IP, run, and die.
+You should not store state in a Pod's local filesystem unless you mount
+a persistent volume.
+
+Deployment
+----------
+
+A Deployment manages a ReplicaSet that manages Pods. It declares a
+template (the Pod spec) and a desired replica count. When you change
+the template, the Deployment performs a rolling update: it brings up
+new Pods with the new template, waits for them to be Ready, then
+terminates old ones. Strategy controls (maxSurge, maxUnavailable) tune
+how aggressively this happens.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: my-org/api:1.4.2
+          ports:
+            - containerPort: 8080
+
+Service
+-------
+
+A Service gives a stable virtual IP and DNS name to a set of Pods that
+match a label selector. It load-balances traffic across them. Types:
+
+- ClusterIP (default): only reachable inside the cluster. Use for
+  service-to-service traffic.
+- NodePort: exposes the service on a fixed port on every node.
+- LoadBalancer: provisions an external load balancer (cloud only).
+- ExternalName: DNS alias to an external host; no proxying.
+
+Configuration and secrets
+-------------------------
+
+ConfigMaps hold non-sensitive key-value pairs; Secrets hold sensitive
+ones (base64-encoded by default; encrypt at rest in production). Both
+can be mounted as files or exposed as environment variables. Prefer
+files for things that change at runtime — env vars are baked in at Pod
+start.
+
+Health checks
+-------------
+
+readinessProbe decides whether the Pod is ready to receive traffic;
+livenessProbe restarts the container if it stops responding. Set both
+on every long-running workload. A common mistake is making the
+liveness probe too aggressive: temporary slowdowns will trigger
+restarts that make the problem worse.
