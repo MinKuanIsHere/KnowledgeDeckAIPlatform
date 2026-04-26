@@ -1,12 +1,9 @@
 "use client";
 
-import { ChevronDown, ChevronRight, LogOut, MessageSquare, Plus, Trash2, Upload } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronRight, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { isAxiosError } from "axios";
 
-import { useAuthStore } from "../../../lib/auth-store";
 import {
   type KnowledgeBase,
   type KnowledgeFile,
@@ -38,10 +35,6 @@ function detailMessage(err: unknown, fallbackMap: Record<string, string>): strin
 }
 
 export default function KnowledgeBasesPage() {
-  const router = useRouter();
-  const user = useAuthStore((s) => s.user);
-  const clearSession = useAuthStore((s) => s.clearSession);
-
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
   const [creatingOpen, setCreatingOpen] = useState(false);
@@ -60,11 +53,6 @@ export default function KnowledgeBasesPage() {
     refresh();
   }, []);
 
-  function handleLogout() {
-    clearSession();
-    router.push("/login");
-  }
-
   async function handleDeleteKb(kb: KnowledgeBase) {
     if (!window.confirm(`Delete "${kb.name}" and all its files?`)) return;
     await deleteKnowledgeBase(kb.id);
@@ -72,78 +60,44 @@ export default function KnowledgeBasesPage() {
   }
 
   return (
-    <main className="flex h-screen bg-background text-foreground">
-      <aside className="hidden w-56 flex-col border-r border-border bg-white/80 md:flex">
-        <div className="border-b border-border px-4 py-4 text-lg font-semibold">
-          KnowledgeDeck
-        </div>
-        <nav className="flex-1 px-2 py-3 text-sm">
-          <Link
-            href="/"
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <MessageSquare className="h-4 w-4" />
-            Chat
-          </Link>
-          <div className="mt-1 flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-foreground">
-            <Plus className="h-4 w-4 rotate-45" />
-            Knowledge Bases
-          </div>
-        </nav>
-        <div className="border-t border-border px-3 py-3 text-xs text-muted-foreground">
-          <div className="mb-2 truncate" title={user?.username}>
-            {user?.username ?? ""}
-          </div>
+    <section className="h-full overflow-auto px-6 py-6">
+      <div className="mx-auto max-w-3xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">Knowledge Bases</h1>
           <button
             type="button"
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground"
+            onClick={() => setCreatingOpen((o) => !o)}
+            className="rounded-md bg-foreground px-3 py-1.5 text-sm text-white"
           >
-            <LogOut className="h-4 w-4" />
-            Logout
+            + New KB
           </button>
         </div>
-      </aside>
 
-      <section className="flex-1 overflow-auto px-6 py-6">
-        <div className="mx-auto max-w-3xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold">Knowledge Bases</h1>
-            <button
-              type="button"
-              onClick={() => setCreatingOpen((o) => !o)}
-              className="rounded-md bg-foreground px-3 py-1.5 text-sm text-white"
-            >
-              + New KB
-            </button>
+        {creatingOpen ? (
+          <NewKbForm
+            onCancel={() => setCreatingOpen(false)}
+            onCreated={async () => {
+              setCreatingOpen(false);
+              await refresh();
+            }}
+          />
+        ) : null}
+
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : kbs.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-white p-10 text-center text-sm text-muted-foreground">
+            No knowledge bases yet. Click "+ New KB" to create one.
           </div>
-
-          {creatingOpen ? (
-            <NewKbForm
-              onCancel={() => setCreatingOpen(false)}
-              onCreated={async () => {
-                setCreatingOpen(false);
-                await refresh();
-              }}
-            />
-          ) : null}
-
-          {loading ? (
-            <div className="text-sm text-muted-foreground">Loading…</div>
-          ) : kbs.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-white p-10 text-center text-sm text-muted-foreground">
-              No knowledge bases yet. Click "+ New KB" to create one.
-            </div>
-          ) : (
-            <ul className="space-y-2">
-              {kbs.map((kb) => (
-                <KbRow key={kb.id} kb={kb} onDelete={() => handleDeleteKb(kb)} />
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-    </main>
+        ) : (
+          <ul className="space-y-2">
+            {kbs.map((kb) => (
+              <KbRow key={kb.id} kb={kb} onDelete={() => handleDeleteKb(kb)} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 
