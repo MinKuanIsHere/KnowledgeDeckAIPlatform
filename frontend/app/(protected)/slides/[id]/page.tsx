@@ -8,10 +8,11 @@ import {
   CheckCircle2,
   Copy,
   Download,
-  FileUp,
+  ExternalLink,
   Loader2,
-  Paperclip,
+  Palette,
   Pencil,
+  RefreshCw,
   Sparkles,
   Trash2,
   User,
@@ -26,17 +27,18 @@ import { ChatInput } from "../../../../components/ChatInput";
 import { useKbStore } from "../../../../lib/kb-store";
 import { useSlideStore } from "../../../../lib/slide-store";
 import {
+  type AvailableTemplate,
   type SlideMessage,
   type SlideMessageCitation,
-  type TemplateFile,
-  deleteTemplateFile,
   downloadSlideSession,
   getSlideSession,
+  listAvailableTemplates,
   parseRenderMarker,
+  presentonTemplateBuilderUrl,
   renderSlideSession,
+  setSessionTemplate,
   streamSlideSession,
   stripOutlineReady,
-  uploadTemplateFile,
 } from "../../../../lib/slides";
 
 function detailMessage(err: unknown): string {
@@ -84,10 +86,9 @@ export default function SlideSessionPage() {
   const session = sessions.find((s) => s.id === sessionId);
 
   const [messages, setMessages] = useState<SlideMessage[]>([]);
-  const [templateFiles, setTemplateFiles] = useState<TemplateFile[]>([]);
-  const [templateUploading, setTemplateUploading] = useState(false);
+  const [availableTemplates, setAvailableTemplates] = useState<AvailableTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
-  const templateInputRef = useRef<HTMLInputElement | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [streamingCitations, setStreamingCitations] = useState<
     SlideMessageCitation[] | null
@@ -132,18 +133,31 @@ export default function SlideSessionPage() {
         const detail = await getSlideSession(sessionId);
         if (cancelled) return;
         setMessages(detail.messages);
-        setTemplateFiles(detail.template_files);
       } catch {
-        if (!cancelled) {
-          setMessages([]);
-          setTemplateFiles([]);
-        }
+        if (!cancelled) setMessages([]);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [sessionId]);
+
+  async function refreshTemplates() {
+    setTemplatesLoading(true);
+    setTemplateError(null);
+    try {
+      setAvailableTemplates(await listAvailableTemplates());
+    } catch (err) {
+      setTemplateError(detailMessage(err));
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }
+
+  // Pull the template list once on mount so the picker is populated.
+  useEffect(() => {
+    refreshTemplates();
+  }, []);
 
   // Tick the elapsed counter while a render is in flight so the user sees
   // visible progress instead of a static spinner.
@@ -263,31 +277,16 @@ export default function SlideSessionPage() {
     router.push("/slides");
   }
 
-  async function handleTemplateUpload(file: File) {
+  async function handleSelectTemplate(template: AvailableTemplate | null) {
     setTemplateError(null);
-    setTemplateUploading(true);
     try {
-      const created = await uploadTemplateFile(sessionId, file);
-      // Server returns the new entry with its index. Append locally.
-      setTemplateFiles((cur) => [...cur, created]);
-    } catch (err) {
-      setTemplateError(detailMessage(err));
-    } finally {
-      setTemplateUploading(false);
-      if (templateInputRef.current) templateInputRef.current.value = "";
-    }
-  }
-
-  async function handleTemplateDelete(index: number) {
-    try {
-      await deleteTemplateFile(sessionId, index);
-      // Re-index: drop the entry, shift indices > index down by one so the
-      // local view matches the server's array reshuffle on next load.
-      setTemplateFiles((cur) =>
-        cur
-          .filter((tf) => tf.index !== index)
-          .map((tf) => (tf.index > index ? { ...tf, index: tf.index - 1 } : tf)),
-      );
+      const updated = await setSessionTemplate(sessionId, template);
+      // Mirror the new state into the slide store so the sidebar and any
+      // render path see the same custom_template_* values immediately.
+      patchSession(sessionId, {
+        custom_template_id: updated.custom_template_id,
+        custom_template_name: updated.custom_template_name,
+      });
     } catch (err) {
       setTemplateError(detailMessage(err));
     }
@@ -432,17 +431,14 @@ export default function SlideSessionPage() {
         </div>
       </div>
 
-      <TemplatePillRow
-        templateFiles={templateFiles}
-        uploading={templateUploading}
+      <VisualTemplateRow
+        currentId={session?.custom_template_id ?? null}
+        currentName={session?.custom_template_name ?? null}
+        available={availableTemplates}
+        loading={templatesLoading}
         error={templateError}
-        inputRef={templateInputRef}
-        onPick={() => templateInputRef.current?.click()}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void handleTemplateUpload(file);
-        }}
-        onRemove={(index) => void handleTemplateDelete(index)}
+        onSelect={(t) => void handleSelectTemplate(t)}
+        onRefresh={() => void refreshTemplates()}
       />
       <ChatInput
         knowledgeBases={knowledgeBases}
@@ -453,81 +449,89 @@ export default function SlideSessionPage() {
   );
 }
 
-function TemplatePillRow({
-  templateFiles,
-  uploading,
+function VisualTemplateRow({
+  currentId,
+  currentName,
+  available,
+  loading,
   error,
-  inputRef,
-  onPick,
-  onChange,
-  onRemove,
+  onSelect,
+  onRefresh,
 }: {
-  templateFiles: TemplateFile[];
-  uploading: boolean;
+  currentId: string | null;
+  currentName: string | null;
+  available: AvailableTemplate[];
+  loading: boolean;
   error: string | null;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  onPick: () => void;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onRemove: (index: number) => void;
+  onSelect: (template: AvailableTemplate | null) => void;
+  onRefresh: () => void;
 }) {
-  function humanSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const builderUrl = presentonTemplateBuilderUrl();
+
+  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const id = e.target.value;
+    if (!id) {
+      onSelect(null);
+      return;
+    }
+    const t = available.find((x) => x.id === id);
+    if (t) onSelect(t);
   }
+
   return (
     <div className="border-t border-border bg-muted/30 px-3 py-2">
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Paperclip className="h-3.5 w-3.5 shrink-0" />
-          <span className="shrink-0">Reference templates:</span>
-          {templateFiles.length === 0 ? (
-            <span className="italic">None attached</span>
-          ) : (
-            templateFiles.map((tf) => (
-              <span
-                key={tf.index}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-white px-2 py-0.5"
-                title={`${tf.filename} · ${humanSize(tf.size_bytes)}`}
-              >
-                <span className="max-w-[180px] truncate">{tf.filename}</span>
-                <button
-                  type="button"
-                  onClick={() => onRemove(tf.index)}
-                  aria-label={`Remove ${tf.filename}`}
-                  className="rounded p-0.5 hover:bg-muted hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))
-          )}
+          <Palette className="h-3.5 w-3.5 shrink-0" />
+          <span className="shrink-0">Visual template:</span>
+          <select
+            value={currentId ?? ""}
+            onChange={handleChange}
+            className="rounded-md border border-border bg-white px-2 py-0.5 text-xs"
+          >
+            <option value="">Default (general / modern)</option>
+            {available.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          {currentId && currentName ? (
+            <span className="text-xs italic">
+              using "{currentName}"
+            </span>
+          ) : null}
           <button
             type="button"
-            onClick={onPick}
-            disabled={uploading}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-0.5 hover:bg-muted disabled:opacity-50"
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label="Refresh templates"
+            className="rounded p-1 hover:bg-muted hover:text-foreground disabled:opacity-50"
           >
-            {uploading ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Uploading…
-              </>
+            {loading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <>
-                <FileUp className="h-3 w-3" /> Add .pptx
-              </>
+              <RefreshCw className="h-3 w-3" />
             )}
           </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".pptx"
-            onChange={onChange}
-            className="hidden"
-          />
+          <a
+            href={builderUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-0.5 hover:bg-muted hover:text-foreground"
+            title="Open Presenton's template builder in a new tab"
+          >
+            Create in Presenton <ExternalLink className="h-3 w-3" />
+          </a>
         </div>
         {error ? (
           <div className="mt-1 text-xs text-red-600">{error}</div>
+        ) : null}
+        {available.length === 0 && !loading ? (
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            No custom templates yet. Click "Create in Presenton" to author
+            one from a .pptx, then refresh.
+          </div>
         ) : null}
       </div>
     </div>

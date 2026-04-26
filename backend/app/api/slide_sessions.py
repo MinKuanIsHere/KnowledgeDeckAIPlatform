@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -54,10 +54,10 @@ class SessionUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
-class TemplateFileOut(BaseModel):
-    index: int  # array position; used by DELETE
-    filename: str
-    size_bytes: int
+class AvailableTemplate(BaseModel):
+    """A custom template authored in Presenton's UI."""
+    id: str
+    name: str
 
 
 class SessionOut(BaseModel):
@@ -65,6 +65,8 @@ class SessionOut(BaseModel):
     title: str
     status: str
     has_pptx: bool
+    custom_template_id: str | None
+    custom_template_name: str | None
     created_at: str
     updated_at: str
 
@@ -79,7 +81,12 @@ class MessageOut(BaseModel):
 
 class SessionDetail(SessionOut):
     messages: list[MessageOut]
-    template_files: list[TemplateFileOut]
+
+
+class TemplateUpdate(BaseModel):
+    """Either both fields are populated (set), or both null (clear)."""
+    custom_template_id: str | None
+    custom_template_name: str | None
 
 
 class StreamRequest(BaseModel):
@@ -104,6 +111,8 @@ def _session_out(s: SlideSession) -> SessionOut:
         title=s.title,
         status=s.status.value,
         has_pptx=s.generated_pptx_key is not None,
+        custom_template_id=s.custom_template_id,
+        custom_template_name=s.custom_template_name,
         created_at=s.created_at.isoformat(),
         updated_at=s.updated_at.isoformat(),
     )
@@ -117,19 +126,6 @@ def _message_out(m: SlideMessage) -> MessageOut:
         citations=m.citations,
         created_at=m.created_at.isoformat(),
     )
-
-
-def _template_files_out(s: SlideSession) -> list[TemplateFileOut]:
-    out: list[TemplateFileOut] = []
-    for i, tf in enumerate(s.template_files or []):
-        out.append(
-            TemplateFileOut(
-                index=i,
-                filename=tf.get("filename", ""),
-                size_bytes=int(tf.get("size_bytes", 0)),
-            )
-        )
-    return out
 
 
 async def _load_owned_session(
@@ -218,6 +214,33 @@ async def list_sessions(
     return [_session_out(s) for s in rows.all()]
 
 
+# Static path declared before /{session_id} so FastAPI doesn't match
+# "available-templates" as a session id.
+@router.get("/available-templates", response_model=list[AvailableTemplate])
+async def list_available_templates(
+    _user: User = Depends(get_current_user),
+) -> list[AvailableTemplate]:
+    """Proxy to Presenton's /template/all (excludes built-ins). Frontend
+    calls this to populate the picker after the user authors a new
+    template via Presenton's /custom-template page."""
+    presenton = get_presenton_client()
+    try:
+        items = await presenton.list_custom_templates()
+    except PresentonError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail=f"presenton_unavailable: {exc}"
+        )
+    out: list[AvailableTemplate] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        tid = item.get("id") or item.get("template_id")
+        name = item.get("name") or tid or "Untitled"
+        if tid:
+            out.append(AvailableTemplate(id=str(tid), name=str(name)))
+    return out
+
+
 @router.get("/{session_id}", response_model=SessionDetail)
 async def get_session(
     session_id: int,
@@ -232,10 +255,11 @@ async def get_session(
         title=s.title,
         status=s.status.value,
         has_pptx=s.generated_pptx_key is not None,
+        custom_template_id=s.custom_template_id,
+        custom_template_name=s.custom_template_name,
         created_at=s.created_at.isoformat(),
         updated_at=s.updated_at.isoformat(),
         messages=[_message_out(m) for m in s.messages],
-        template_files=_template_files_out(s),
     )
 
 
@@ -264,109 +288,29 @@ async def delete_session(
     await session.commit()
 
 
-# --- Template files (reference PPTXs passed to Presenton's `files` array) ---
+# --- Visual templates (custom PPTX-derived templates authored in Presenton's UI) ---
+# (PATCH /{session_id}/template lives here, but the static-path GET is
+# declared above the dynamic /{session_id} routes to win FastAPI's route
+# matching priority.)
 
-# Hard cap on a single template file. PPTX templates are typically <5 MB.
-_MAX_TEMPLATE_BYTES = 20 * 1024 * 1024  # 20 MiB
 
-
-@router.post(
-    "/{session_id}/template-files",
-    response_model=TemplateFileOut,
-    status_code=status.HTTP_201_CREATED,
-)
-async def upload_template_file(
+@router.patch("/{session_id}/template", response_model=SessionOut)
+async def set_session_template(
     session_id: int,
-    file: UploadFile = File(...),
+    body: TemplateUpdate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> TemplateFileOut:
+) -> SessionOut:
+    """Bind a Presenton-authored visual template to this session, or clear
+    it (pass both fields as null). Render falls back to the marker /
+    default chain when this is null."""
     s = await _load_owned_session(session, owner_user_id=user.id, session_id=session_id)
-
-    filename = file.filename or ""
-    if not filename.lower().endswith(".pptx"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid_extension")
-
-    # Stream into memory with a hard cap.
-    chunks: list[bytes] = []
-    total = 0
-    chunk_size = 64 * 1024
-    while True:
-        chunk = await file.read(chunk_size)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > _MAX_TEMPLATE_BYTES:
-            raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="file_too_large",
-            )
-        chunks.append(chunk)
-    data = b"".join(chunks)
-
-    # PPTX is a ZIP archive — first 4 bytes must be the local file header
-    # signature `PK\x03\x04`. Empty / non-zip uploads get rejected.
-    if not data.startswith(b"PK\x03\x04"):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail="invalid_content"
-        )
-
-    # Persist bytes in MinIO under a stable per-session prefix. The append
-    # index becomes part of the key so re-uploads of the same name don't
-    # collide.
-    minio = get_minio_client()
-    next_index = len(s.template_files or [])
-    safe_name = filename.replace("/", "_")
-    minio_key = f"slide-sessions/{session_id}/templates/{next_index}-{safe_name}"
-    await minio.put_object(
-        minio_key,
-        io.BytesIO(data),
-        len(data),
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    )
-
-    entry = {"filename": safe_name, "minio_key": minio_key, "size_bytes": total}
-    # JSONB lists need to be replaced (not mutated) so SQLAlchemy detects
-    # the change.
-    s.template_files = [*(s.template_files or []), entry]
+    s.custom_template_id = body.custom_template_id or None
+    s.custom_template_name = body.custom_template_name or None
     s.updated_at = datetime.now(timezone.utc)
     await session.commit()
-
-    return TemplateFileOut(index=next_index, filename=safe_name, size_bytes=total)
-
-
-@router.delete(
-    "/{session_id}/template-files/{index}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def remove_template_file(
-    session_id: int,
-    index: int,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db),
-) -> None:
-    s = await _load_owned_session(session, owner_user_id=user.id, session_id=session_id)
-    files = list(s.template_files or [])
-    if index < 0 or index >= len(files):
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="template_file_not_found"
-        )
-    removed = files.pop(index)
-
-    # Best-effort MinIO cleanup; don't fail the whole call if MinIO is flaky.
-    try:
-        minio = get_minio_client()
-        await minio.delete_object(removed["minio_key"])
-    except Exception:
-        logger.exception(
-            "template_minio_delete_failed session=%s key=%s",
-            session_id,
-            removed.get("minio_key"),
-        )
-
-    s.template_files = files
-    s.updated_at = datetime.now(timezone.utc)
-    await session.commit()
+    await session.refresh(s)
+    return _session_out(s)
 
 
 # --- Streaming chat ---
@@ -480,28 +424,25 @@ async def render_session(
     if not slide_blocks:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="outline_unparsable")
 
-    # Marker-supplied params override request body defaults — the LLM had
-    # the conversation context and chose them with the user.
-    requested_template = (marker_params.get("template") or body.template).strip()
+    # Template precedence: session.custom_template_id (user pinned this
+    # session to a Presenton-authored visual template) > marker > body >
+    # default. Built-in fallback to general for unrecognised LLM markers
+    # since Presenton 400s on missing template names.
     language = marker_params.get("language") or body.language
-
-    # Allow-list of templates Presenton actually ships in this image. Other
-    # values (including older docs' `classic`/`professional`) trigger
-    # "Template not found" 400. Custom-uploaded templates would arrive as
-    # `custom-{uuid}` — pass those through untouched.
-    _BUILTIN_TEMPLATES = {"general", "modern"}
-    if (
-        requested_template in _BUILTIN_TEMPLATES
-        or requested_template.startswith("custom-")
-    ):
-        template = requested_template
+    if s.custom_template_id:
+        template = s.custom_template_id
     else:
-        logger.info(
-            "slide_render template_fallback session=%s requested=%s -> general",
-            session_id,
-            requested_template,
-        )
-        template = "general"
+        requested_template = (marker_params.get("template") or body.template).strip()
+        _BUILTIN_TEMPLATES = {"general", "modern"}
+        if requested_template in _BUILTIN_TEMPLATES:
+            template = requested_template
+        else:
+            logger.info(
+                "slide_render template_fallback session=%s requested=%s -> general",
+                session_id,
+                requested_template,
+            )
+            template = "general"
 
     s.status = SlideStatus.RENDERING
     s.updated_at = started
@@ -509,41 +450,12 @@ async def render_session(
 
     presenton = get_presenton_client()
     try:
-        # Re-upload any attached template files to Presenton on every render
-        # so we don't depend on Presenton's ephemeral /tmp persisting across
-        # restarts. Bytes come from MinIO where they live permanently.
-        presenton_file_paths: list[str] = []
-        if s.template_files:
-            minio = get_minio_client()
-            for entry in s.template_files:
-                key = entry["minio_key"]
-                # minio-py is sync; pull bytes off the loop's executor.
-                def _fetch_bytes(k: str = key) -> bytes:
-                    response = minio._client.get_object(minio.bucket, k)
-                    try:
-                        return response.read()
-                    finally:
-                        response.close()
-                        response.release_conn()
-
-                tpl_bytes = await asyncio.to_thread(_fetch_bytes)
-                path = await presenton.upload_file(
-                    filename=entry["filename"],
-                    content=tpl_bytes,
-                    content_type=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "presentationml.presentation"
-                    ),
-                )
-                presenton_file_paths.append(path)
-
         result = await presenton.generate(
             slides_markdown=slide_blocks,
             n_slides=len(slide_blocks),
             language=language,
             template=template,
             export_as="pptx",
-            files=presenton_file_paths or None,
         )
         path = result.get("path")
         if not path:
@@ -611,8 +523,6 @@ async def download_session(
     minio = get_minio_client()
     # minio-py exposes a streaming get; fetch the bytes via the underlying
     # client. Wrapping with asyncio.to_thread for symmetry.
-    import asyncio
-
     def _fetch() -> bytes:
         response = minio._client.get_object(minio.bucket, s.generated_pptx_key)
         try:

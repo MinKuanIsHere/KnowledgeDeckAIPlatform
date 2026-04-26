@@ -39,6 +39,25 @@ class PresentonClient:
         self._shared_data_root = Path(shared_data_root)
         self._timeout = timeout
 
+    async def list_custom_templates(self) -> list[dict[str, Any]]:
+        """Fetch user-authored visual templates (skips built-in general/modern).
+
+        Each entry: {"id": "<uuid>", "name": "...", ...}. Presenton's
+        full payload is passed through; the API surface only relies on
+        id and name fields.
+        """
+        url = f"{self._base_url}/api/v1/ppt/template/all?include_defaults=false"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                url, headers={"Authorization": self._auth_header}
+            )
+            if response.status_code >= 400:
+                raise PresentonError(
+                    f"Presenton list templates {response.status_code}: {response.text[:200]}"
+                )
+            data = response.json()
+            return data if isinstance(data, list) else []
+
     async def upload_file(
         self,
         *,
