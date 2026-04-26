@@ -8,11 +8,14 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  FileUp,
   Loader2,
+  Paperclip,
   Pencil,
   Sparkles,
   Trash2,
   User,
+  X,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -25,12 +28,15 @@ import { useSlideStore } from "../../../../lib/slide-store";
 import {
   type SlideMessage,
   type SlideMessageCitation,
+  type TemplateFile,
+  deleteTemplateFile,
   downloadSlideSession,
   getSlideSession,
   parseRenderMarker,
   renderSlideSession,
   streamSlideSession,
   stripOutlineReady,
+  uploadTemplateFile,
 } from "../../../../lib/slides";
 
 function detailMessage(err: unknown): string {
@@ -78,6 +84,10 @@ export default function SlideSessionPage() {
   const session = sessions.find((s) => s.id === sessionId);
 
   const [messages, setMessages] = useState<SlideMessage[]>([]);
+  const [templateFiles, setTemplateFiles] = useState<TemplateFile[]>([]);
+  const [templateUploading, setTemplateUploading] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const templateInputRef = useRef<HTMLInputElement | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [streamingCitations, setStreamingCitations] = useState<
     SlideMessageCitation[] | null
@@ -116,13 +126,18 @@ export default function SlideSessionPage() {
     if (!Number.isFinite(sessionId)) return;
     let cancelled = false;
     setRenderState(null);
+    setTemplateError(null);
     (async () => {
       try {
         const detail = await getSlideSession(sessionId);
         if (cancelled) return;
         setMessages(detail.messages);
+        setTemplateFiles(detail.template_files);
       } catch {
-        if (!cancelled) setMessages([]);
+        if (!cancelled) {
+          setMessages([]);
+          setTemplateFiles([]);
+        }
       }
     })();
     return () => {
@@ -246,6 +261,36 @@ export default function SlideSessionPage() {
     if (!window.confirm(`Delete "${session.title}"?`)) return;
     await removeSession(sessionId);
     router.push("/slides");
+  }
+
+  async function handleTemplateUpload(file: File) {
+    setTemplateError(null);
+    setTemplateUploading(true);
+    try {
+      const created = await uploadTemplateFile(sessionId, file);
+      // Server returns the new entry with its index. Append locally.
+      setTemplateFiles((cur) => [...cur, created]);
+    } catch (err) {
+      setTemplateError(detailMessage(err));
+    } finally {
+      setTemplateUploading(false);
+      if (templateInputRef.current) templateInputRef.current.value = "";
+    }
+  }
+
+  async function handleTemplateDelete(index: number) {
+    try {
+      await deleteTemplateFile(sessionId, index);
+      // Re-index: drop the entry, shift indices > index down by one so the
+      // local view matches the server's array reshuffle on next load.
+      setTemplateFiles((cur) =>
+        cur
+          .filter((tf) => tf.index !== index)
+          .map((tf) => (tf.index > index ? { ...tf, index: tf.index - 1 } : tf)),
+      );
+    } catch (err) {
+      setTemplateError(detailMessage(err));
+    }
   }
 
   async function handleRename(e: FormEvent<HTMLFormElement>) {
@@ -387,12 +432,105 @@ export default function SlideSessionPage() {
         </div>
       </div>
 
+      <TemplatePillRow
+        templateFiles={templateFiles}
+        uploading={templateUploading}
+        error={templateError}
+        inputRef={templateInputRef}
+        onPick={() => templateInputRef.current?.click()}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleTemplateUpload(file);
+        }}
+        onRemove={(index) => void handleTemplateDelete(index)}
+      />
       <ChatInput
         knowledgeBases={knowledgeBases}
         disabled={isStreaming || renderState !== null}
         onSend={handleSend}
       />
     </section>
+  );
+}
+
+function TemplatePillRow({
+  templateFiles,
+  uploading,
+  error,
+  inputRef,
+  onPick,
+  onChange,
+  onRemove,
+}: {
+  templateFiles: TemplateFile[];
+  uploading: boolean;
+  error: string | null;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onPick: () => void;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: (index: number) => void;
+}) {
+  function humanSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return (
+    <div className="border-t border-border bg-muted/30 px-3 py-2">
+      <div className="mx-auto max-w-5xl">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+          <span className="shrink-0">Reference templates:</span>
+          {templateFiles.length === 0 ? (
+            <span className="italic">None attached</span>
+          ) : (
+            templateFiles.map((tf) => (
+              <span
+                key={tf.index}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-white px-2 py-0.5"
+                title={`${tf.filename} · ${humanSize(tf.size_bytes)}`}
+              >
+                <span className="max-w-[180px] truncate">{tf.filename}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(tf.index)}
+                  aria-label={`Remove ${tf.filename}`}
+                  className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))
+          )}
+          <button
+            type="button"
+            onClick={onPick}
+            disabled={uploading}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-0.5 hover:bg-muted disabled:opacity-50"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" /> Uploading…
+              </>
+            ) : (
+              <>
+                <FileUp className="h-3 w-3" /> Add .pptx
+              </>
+            )}
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".pptx"
+            onChange={onChange}
+            className="hidden"
+          />
+        </div>
+        {error ? (
+          <div className="mt-1 text-xs text-red-600">{error}</div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

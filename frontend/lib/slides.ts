@@ -24,8 +24,15 @@ export type SlideMessage = {
   created_at: string;
 };
 
+export type TemplateFile = {
+  index: number;
+  filename: string;
+  size_bytes: number;
+};
+
 export type SlideSessionDetail = SlideSession & {
   messages: SlideMessage[];
+  template_files: TemplateFile[];
 };
 
 export const OUTLINE_READY_MARKER = "[OUTLINE_READY]";
@@ -63,6 +70,28 @@ export async function updateSlideSession(
 
 export async function deleteSlideSession(id: number): Promise<void> {
   await api.delete(`/slide-sessions/${id}`);
+}
+
+// --- Template files ---
+
+export async function uploadTemplateFile(
+  sessionId: number,
+  file: File,
+): Promise<TemplateFile> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await api.post<TemplateFile>(
+    `/slide-sessions/${sessionId}/template-files`,
+    form,
+  );
+  return res.data;
+}
+
+export async function deleteTemplateFile(
+  sessionId: number,
+  index: number,
+): Promise<void> {
+  await api.delete(`/slide-sessions/${sessionId}/template-files/${index}`);
 }
 
 // --- Streaming + Render + Download ---

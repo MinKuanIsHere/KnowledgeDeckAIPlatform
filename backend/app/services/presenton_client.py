@@ -39,6 +39,37 @@ class PresentonClient:
         self._shared_data_root = Path(shared_data_root)
         self._timeout = timeout
 
+    async def upload_file(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Upload a single reference file to Presenton, return the path string.
+
+        The path is on Presenton's ephemeral filesystem (e.g.
+        `/tmp/presenton/<uuid>/{filename}`) and survives only until the
+        Presenton container restarts — caller is responsible for
+        re-uploading the same bytes if a stable handle is needed.
+        """
+        url = f"{self._base_url}/api/v1/ppt/files/upload"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            files = [("files", (filename, content, content_type))]
+            response = await client.post(
+                url,
+                files=files,
+                headers={"Authorization": self._auth_header},
+            )
+            if response.status_code >= 400:
+                raise PresentonError(
+                    f"Presenton upload {response.status_code}: {response.text[:300]}"
+                )
+            paths = response.json()
+            if not isinstance(paths, list) or not paths:
+                raise PresentonError(f"unexpected upload response: {response.text[:200]}")
+            return paths[0]
+
     async def generate(
         self,
         *,
@@ -47,6 +78,7 @@ class PresentonClient:
         language: str = "English",
         template: str = "general",
         export_as: str = "pptx",
+        files: list[str] | None = None,
     ) -> dict[str, Any]:
         """Sync /generate. Blocks until the PPTX is rendered.
 
@@ -60,13 +92,15 @@ class PresentonClient:
         the model is unchanged — only the prompt structure differs.
         """
         content = "\n\n".join(slides_markdown)
-        payload = {
+        payload: dict[str, Any] = {
             "content": content,
             "n_slides": n_slides,
             "language": language,
             "template": template,
             "export_as": export_as,
         }
+        if files:
+            payload["files"] = files
         url = f"{self._base_url}/api/v1/ppt/presentation/generate"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(

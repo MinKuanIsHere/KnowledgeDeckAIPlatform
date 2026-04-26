@@ -205,6 +205,13 @@ class SlideSession(Base):
     # MinIO object key for the most recently rendered PPTX, NULL until first
     # successful render. New renders overwrite the key.
     generated_pptx_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Reference template files attached to this session. Each element:
+    # {"filename": str, "minio_key": str, "size_bytes": int}. PPTX bytes live
+    # in MinIO; render-time re-uploads them to Presenton to dodge Presenton's
+    # ephemeral /tmp storage.
+    template_files: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

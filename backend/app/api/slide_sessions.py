@@ -7,6 +7,7 @@ in MinIO.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
@@ -15,7 +16,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -53,6 +54,12 @@ class SessionUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class TemplateFileOut(BaseModel):
+    index: int  # array position; used by DELETE
+    filename: str
+    size_bytes: int
+
+
 class SessionOut(BaseModel):
     id: int
     title: str
@@ -72,6 +79,7 @@ class MessageOut(BaseModel):
 
 class SessionDetail(SessionOut):
     messages: list[MessageOut]
+    template_files: list[TemplateFileOut]
 
 
 class StreamRequest(BaseModel):
@@ -109,6 +117,19 @@ def _message_out(m: SlideMessage) -> MessageOut:
         citations=m.citations,
         created_at=m.created_at.isoformat(),
     )
+
+
+def _template_files_out(s: SlideSession) -> list[TemplateFileOut]:
+    out: list[TemplateFileOut] = []
+    for i, tf in enumerate(s.template_files or []):
+        out.append(
+            TemplateFileOut(
+                index=i,
+                filename=tf.get("filename", ""),
+                size_bytes=int(tf.get("size_bytes", 0)),
+            )
+        )
+    return out
 
 
 async def _load_owned_session(
@@ -214,6 +235,7 @@ async def get_session(
         created_at=s.created_at.isoformat(),
         updated_at=s.updated_at.isoformat(),
         messages=[_message_out(m) for m in s.messages],
+        template_files=_template_files_out(s),
     )
 
 
@@ -239,6 +261,111 @@ async def delete_session(
 ) -> None:
     s = await _load_owned_session(session, owner_user_id=user.id, session_id=session_id)
     s.deleted_at = datetime.now(timezone.utc)
+    await session.commit()
+
+
+# --- Template files (reference PPTXs passed to Presenton's `files` array) ---
+
+# Hard cap on a single template file. PPTX templates are typically <5 MB.
+_MAX_TEMPLATE_BYTES = 20 * 1024 * 1024  # 20 MiB
+
+
+@router.post(
+    "/{session_id}/template-files",
+    response_model=TemplateFileOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_template_file(
+    session_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> TemplateFileOut:
+    s = await _load_owned_session(session, owner_user_id=user.id, session_id=session_id)
+
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pptx"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid_extension")
+
+    # Stream into memory with a hard cap.
+    chunks: list[bytes] = []
+    total = 0
+    chunk_size = 64 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_TEMPLATE_BYTES:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="file_too_large",
+            )
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
+    # PPTX is a ZIP archive — first 4 bytes must be the local file header
+    # signature `PK\x03\x04`. Empty / non-zip uploads get rejected.
+    if not data.startswith(b"PK\x03\x04"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="invalid_content"
+        )
+
+    # Persist bytes in MinIO under a stable per-session prefix. The append
+    # index becomes part of the key so re-uploads of the same name don't
+    # collide.
+    minio = get_minio_client()
+    next_index = len(s.template_files or [])
+    safe_name = filename.replace("/", "_")
+    minio_key = f"slide-sessions/{session_id}/templates/{next_index}-{safe_name}"
+    await minio.put_object(
+        minio_key,
+        io.BytesIO(data),
+        len(data),
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+    entry = {"filename": safe_name, "minio_key": minio_key, "size_bytes": total}
+    # JSONB lists need to be replaced (not mutated) so SQLAlchemy detects
+    # the change.
+    s.template_files = [*(s.template_files or []), entry]
+    s.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    return TemplateFileOut(index=next_index, filename=safe_name, size_bytes=total)
+
+
+@router.delete(
+    "/{session_id}/template-files/{index}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_template_file(
+    session_id: int,
+    index: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    s = await _load_owned_session(session, owner_user_id=user.id, session_id=session_id)
+    files = list(s.template_files or [])
+    if index < 0 or index >= len(files):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="template_file_not_found"
+        )
+    removed = files.pop(index)
+
+    # Best-effort MinIO cleanup; don't fail the whole call if MinIO is flaky.
+    try:
+        minio = get_minio_client()
+        await minio.delete_object(removed["minio_key"])
+    except Exception:
+        logger.exception(
+            "template_minio_delete_failed session=%s key=%s",
+            session_id,
+            removed.get("minio_key"),
+        )
+
+    s.template_files = files
+    s.updated_at = datetime.now(timezone.utc)
     await session.commit()
 
 
@@ -364,12 +491,41 @@ async def render_session(
 
     presenton = get_presenton_client()
     try:
+        # Re-upload any attached template files to Presenton on every render
+        # so we don't depend on Presenton's ephemeral /tmp persisting across
+        # restarts. Bytes come from MinIO where they live permanently.
+        presenton_file_paths: list[str] = []
+        if s.template_files:
+            minio = get_minio_client()
+            for entry in s.template_files:
+                key = entry["minio_key"]
+                # minio-py is sync; pull bytes off the loop's executor.
+                def _fetch_bytes(k: str = key) -> bytes:
+                    response = minio._client.get_object(minio.bucket, k)
+                    try:
+                        return response.read()
+                    finally:
+                        response.close()
+                        response.release_conn()
+
+                tpl_bytes = await asyncio.to_thread(_fetch_bytes)
+                path = await presenton.upload_file(
+                    filename=entry["filename"],
+                    content=tpl_bytes,
+                    content_type=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "presentationml.presentation"
+                    ),
+                )
+                presenton_file_paths.append(path)
+
         result = await presenton.generate(
             slides_markdown=slide_blocks,
             n_slides=len(slide_blocks),
             language=language,
             template=template,
             export_as="pptx",
+            files=presenton_file_paths or None,
         )
         path = result.get("path")
         if not path:
