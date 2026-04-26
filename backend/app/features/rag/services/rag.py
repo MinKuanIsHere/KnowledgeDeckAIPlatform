@@ -22,8 +22,8 @@ import logging
 from typing import Any
 
 from app.core.config import get_settings
-from app.services import ingestion, qdrant_store, sparse_embed
-from app.services.model_clients import RerankClient
+from app.features.rag.services import ingestion, qdrant_store, sparse_embed
+from app.features.rag.services.model_clients import RerankClient
 
 logger = logging.getLogger(__name__)
 

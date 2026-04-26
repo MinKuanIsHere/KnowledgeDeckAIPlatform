@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.models import User
-from app.services.auth_service import authenticate
+from app.shared.services.auth_service import authenticate
 
 
 @pytest.fixture()

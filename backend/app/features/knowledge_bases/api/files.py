@@ -13,12 +13,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.core.config import get_settings
 from app.db.base import get_db
 from app.db.models import FileStatus, KnowledgeBase, KnowledgeFile, User
-from app.services import file_service, ingestion
-from app.services.object_storage import get_minio_client
+from app.features.knowledge_bases.services import file_service
+from app.features.rag.services import ingestion
+from app.features.knowledge_bases.services.object_storage import get_minio_client
 
 router = APIRouter(prefix="/knowledge-bases", tags=["files"])
 

@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from app.services.model_clients import ChatModelClient, EmbeddingClient
+from app.features.rag.services.model_clients import ChatModelClient, EmbeddingClient
 
 
 @pytest.mark.asyncio

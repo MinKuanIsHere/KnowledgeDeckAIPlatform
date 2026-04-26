@@ -18,7 +18,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
 from app.core.config import get_settings
-from app.services.sparse_embed import SparseVec
+from app.features.rag.services.sparse_embed import SparseVec
 
 
 _client: QdrantClient | None = None

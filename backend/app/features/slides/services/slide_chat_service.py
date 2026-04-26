@@ -22,7 +22,7 @@ from langchain_openai import ChatOpenAI
 
 from app.core.config import get_settings
 from app.db.models import SlideMessage, SlideRole
-from app.services import rag
+from app.features.rag.services import rag
 
 logger = logging.getLogger(__name__)
 

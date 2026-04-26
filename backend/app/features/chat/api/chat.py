@@ -19,10 +19,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.db.base import async_session_factory, get_db
 from app.db.models import ChatMessage, ChatRole, ChatSession, User
-from app.services import chat_service, rag
+from app.features.chat.services import chat_service
+from app.features.rag.services import rag
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])

@@ -1,14 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.admin import router as admin_router
-from app.api.auth import router as auth_router
-from app.api.chat import router as chat_router
-from app.api.files import router as files_router
-from app.api.health import router as health_router
-from app.api.knowledge_bases import router as knowledge_bases_router
-from app.api.llm_info import router as llm_info_router
-from app.api.slide_sessions import router as slide_sessions_router
+from app.features.rag.api.admin import router as admin_router
+from app.shared.api.auth import router as auth_router
+from app.features.chat.api.chat import router as chat_router
+from app.features.knowledge_bases.api.files import router as files_router
+from app.shared.api.health import router as health_router
+from app.features.knowledge_bases.api.knowledge_bases import router as knowledge_bases_router
+from app.shared.api.llm_info import router as llm_info_router
+from app.features.slides.api.slide_sessions import router as slide_sessions_router
 from app.core.config import get_settings
 from app.startup import lifespan
 

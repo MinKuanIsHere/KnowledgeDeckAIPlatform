@@ -2,13 +2,19 @@
 
 ---
 
-- 我需要你先將此版本確認可以運行，然後更新README.md，我希望對於一個初步clone此repo的人都可以快速上手，需要包含repo介紹、環境、quick start、api簡短使用方法。
-
-- 將此版本更新到github main中，更新完後再回到mvp繼續開法。
-
 - 我需要你進行code review，因為現在repo中有許多開發導致的不必要產物，我希望你可以整理他們。最好是可以依照UI中的Knowledge Bases, Chat, Slide Maker的關係整理目前的repo。因為我知道有些開發者只需要前兩者功能，或是其他功能，我希望對於開發者而言可以很快速找到相關的程式碼。所以程式碼需要整理，同時API也需要整理，並且寫成一份說明文件。然後保留必要markdown，如果有不確定的可以列出並由我操作。
 
-- 當前有許多的markdown文件，我希望可以保留
+- 當前有許多的markdown文件，我希望可以保留 README.md, note-todo.md。新增一份對於API使用說明的markdown。雖然有README.md，但這是快速開發手冊，我希望有個很完整的方法架構說明markdown，需要基於本repo做完整說明。
+
+- 我希望repo中可以有明確docker,KB如何管理(如何處理檔案到vector strore), rag策略, chat用法, slide maker用法，因為這4個項目應該就是我們的核心項目，對於其他開發者而言他可能只想要取其中一個內容功能，我希望他們都可以有很好的被整理到repo中。
+
+Q1: A. 可直接刪（無爭議），同意。
+Q2: B. 需要你決定（4 個 markdown / 一堆 docs。保留 README.md + note-todo.md。可以刪除requirements.md、docs/superpowers/{specs,plans}/。
+Q3: 大選擇 — Backend reorg？路徑 2：重組 backend 為 features/ 結構。
+Q4:就是這兩份文件需要撰寫。
+
+
+- KB 支援python, html, css等常用程式碼。
 
 ---
 

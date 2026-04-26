@@ -23,12 +23,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.db.base import async_session_factory, get_db
 from app.db.models import SlideMessage, SlideRole, SlideSession, SlideStatus, User
-from app.services import slide_chat_service
-from app.services.object_storage import get_minio_client
-from app.services.presenton_client import PresentonError, get_presenton_client
+from app.features.slides.services import slide_chat_service
+from app.features.knowledge_bases.services.object_storage import get_minio_client
+from app.features.slides.services.presenton_client import PresentonError, get_presenton_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/slide-sessions", tags=["slide-sessions"])

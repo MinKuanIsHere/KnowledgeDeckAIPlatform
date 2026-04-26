@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.db.models import User
 
 

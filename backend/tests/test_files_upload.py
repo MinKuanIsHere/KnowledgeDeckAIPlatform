@@ -83,7 +83,7 @@ async def test_upload_rejects_unknown_extension(http_client, alice: User) -> Non
     kb_id = await make_kb(http_client, alice)
     res = await http_client.post(
         f"/knowledge-bases/{kb_id}/files",
-        files={"file": ("x.docx", io.BytesIO(b"PK\x03\x04"), "application/octet-stream")},
+        files={"file": ("x.exe", io.BytesIO(b"PK\x03\x04"), "application/octet-stream")},
         headers=auth(alice),
     )
     assert res.status_code == 400
@@ -130,7 +130,7 @@ async def test_upload_rejects_txt_not_utf8(http_client, alice: User) -> None:
 @pytest.mark.asyncio
 async def test_upload_rejects_oversize(http_client, alice: User, monkeypatch) -> None:
     # Lower the cap for the test instead of streaming 50 MiB.
-    from app.api import files as files_module
+    from app.features.knowledge_bases.api import files as files_module
     monkeypatch.setattr(files_module, "MAX_UPLOAD_BYTES", 100)
     kb_id = await make_kb(http_client, alice)
     res = await http_client.post(
@@ -180,7 +180,7 @@ async def test_upload_rolls_back_db_when_minio_put_fails(
     from sqlalchemy import select
 
     from app.db.models import KnowledgeFile
-    from app.services import object_storage as storage
+    from app.features.knowledge_bases.services import object_storage as storage
 
     async def boom(*args, **kwargs):
         raise RuntimeError("simulated minio outage")

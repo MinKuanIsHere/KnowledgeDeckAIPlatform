@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.db.base import get_db
 from app.db.models import User
-from app.services import knowledge_base_service as svc
+from app.features.knowledge_bases.services import knowledge_base_service as svc
 
 router = APIRouter(prefix="/knowledge-bases", tags=["knowledge-bases"])
 

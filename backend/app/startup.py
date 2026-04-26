@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
         await seed_initial_user(session)
         await session.commit()
 
-    from app.services.object_storage import get_minio_client
+    from app.features.knowledge_bases.services.object_storage import get_minio_client
     await get_minio_client().ensure_bucket()
 
     yield

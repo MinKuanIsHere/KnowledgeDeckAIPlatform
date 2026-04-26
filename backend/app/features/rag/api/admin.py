@@ -17,11 +17,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.db.base import get_db
 from app.db.models import FileStatus, KnowledgeFile, User
-from app.services import ingestion, qdrant_store
-from app.services.object_storage import get_minio_client
+from app.features.rag.services import ingestion, qdrant_store
+from app.features.knowledge_bases.services.object_storage import get_minio_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])

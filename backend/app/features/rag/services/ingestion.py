@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.models import FileStatus, KnowledgeFile
-from app.services import document_parser, qdrant_store, sparse_embed, text_splitter
-from app.services.model_clients import EmbeddingClient
+from app.features.rag.services import document_parser, qdrant_store, sparse_embed, text_splitter
+from app.features.rag.services.model_clients import EmbeddingClient
 
 logger = logging.getLogger(__name__)
 

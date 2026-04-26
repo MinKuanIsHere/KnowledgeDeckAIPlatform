@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from app.services.object_storage import MinioClient, get_minio_client
+from app.features.knowledge_bases.services.object_storage import MinioClient, get_minio_client
 
 
 @pytest.mark.asyncio

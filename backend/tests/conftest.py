@@ -94,7 +94,7 @@ def minio_settings(minio_container) -> dict:
 @pytest.fixture(autouse=True)
 def _patch_app_storage(monkeypatch, minio_settings) -> None:
     """Point app.services.object_storage at the test MinIO container."""
-    from app.services import object_storage as storage
+    from app.features.knowledge_bases.services import object_storage as storage
 
     client = storage.MinioClient(
         endpoint=minio_settings["endpoint"],

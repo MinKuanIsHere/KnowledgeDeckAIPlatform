@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user
+from app.shared.api.deps import get_current_user
 from app.core.config import get_settings
 from app.db.models import User
 
