@@ -2,8 +2,10 @@
 
 import { isAxiosError } from "axios";
 import {
+  AlertCircle,
   Bot,
   Check,
+  CheckCircle2,
   Copy,
   Download,
   Loader2,
@@ -25,7 +27,6 @@ import {
   type SlideMessageCitation,
   downloadSlideSession,
   getSlideSession,
-  hasOutlineReady,
   renderSlideSession,
   streamSlideSession,
   stripOutlineReady,
@@ -82,8 +83,17 @@ export default function SlideSessionPage() {
   >(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
-  const [rendering, setRendering] = useState(false);
-  const [renderError, setRenderError] = useState<string | null>(null);
+
+  // Render state lives entirely in the chat surface — no header button, no
+  // amber bar. While `phase === "rendering"`, the `elapsedSec` counter ticks
+  // every second so the user sees progress. The bubble flips to "rendered"
+  // (with Download) or "error" once the API call resolves.
+  type RenderState =
+    | null
+    | { phase: "rendering"; startedAt: number; elapsedSec: number }
+    | { phase: "rendered"; elapsedSec: number | null }
+    | { phase: "error"; elapsedSec: number; message: string };
+  const [renderState, setRenderState] = useState<RenderState>(null);
 
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
@@ -100,15 +110,21 @@ export default function SlideSessionPage() {
     if (!kbsLoaded) refreshKbs();
   }, [kbsLoaded, refreshKbs]);
 
-  // Load this session's messages whenever the route id changes.
+  // Load this session's messages whenever the route id changes. If the
+  // session was already rendered, seed renderState so the user sees a
+  // Download bubble at the bottom — otherwise reset to null.
   useEffect(() => {
     if (!Number.isFinite(sessionId)) return;
     let cancelled = false;
+    setRenderState(null);
     (async () => {
       try {
         const detail = await getSlideSession(sessionId);
         if (cancelled) return;
         setMessages(detail.messages);
+        if (detail.has_pptx) {
+          setRenderState({ phase: "rendered", elapsedSec: null });
+        }
       } catch {
         if (!cancelled) setMessages([]);
       }
@@ -118,10 +134,52 @@ export default function SlideSessionPage() {
     };
   }, [sessionId]);
 
+  // Tick the elapsed counter while a render is in flight so the user sees
+  // visible progress instead of a static spinner.
+  useEffect(() => {
+    if (renderState?.phase !== "rendering") return;
+    const startedAt = renderState.startedAt;
+    const id = window.setInterval(() => {
+      setRenderState((cur) =>
+        cur && cur.phase === "rendering"
+          ? { ...cur, elapsedSec: Math.round((Date.now() - startedAt) / 1000) }
+          : cur,
+      );
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [renderState?.phase, renderState && renderState.phase === "rendering"
+      ? renderState.startedAt
+      : null]);
+
   // Auto-scroll on new content.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText, isStreaming]);
+
+  // Triggered when the assistant emits [OUTLINE_READY]. Kicks off Presenton
+  // render and folds the result back into the local renderState + the
+  // shared slide store. Any error is shown inside the render bubble.
+  const triggerRender = useCallback(async () => {
+    const startedAt = Date.now();
+    setRenderState({ phase: "rendering", startedAt, elapsedSec: 0 });
+    try {
+      const updated = await renderSlideSession(sessionId);
+      patchSession(sessionId, {
+        status: updated.status,
+        has_pptx: updated.has_pptx,
+      });
+      setRenderState({
+        phase: "rendered",
+        elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+      });
+    } catch (err) {
+      setRenderState({
+        phase: "error",
+        elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+        message: detailMessage(err),
+      });
+    }
+  }, [sessionId, patchSession]);
 
   const handleSend = useCallback(
     async (text: string, useRag: boolean, kbIds: number[] | null) => {
@@ -140,7 +198,6 @@ export default function SlideSessionPage() {
 
       let collected = "";
       let collectedCitations: SlideMessageCitation[] = [];
-      let outlineReady = false;
 
       await streamSlideSession(
         sessionId,
@@ -155,7 +212,6 @@ export default function SlideSessionPage() {
             setStreamingCitations(items);
           },
           onDone: (ready) => {
-            outlineReady = ready;
             const finalAssistant: SlideMessage = {
               id: -Date.now() - 1,
               role: "assistant",
@@ -169,9 +225,11 @@ export default function SlideSessionPage() {
             setIsStreaming(false);
             bumpUpdatedAt(sessionId);
             refreshSlides();
-            // outlineReady is reflected by the message body containing
-            // [OUTLINE_READY]; the dedicated state isn't otherwise needed.
-            void outlineReady;
+            // [OUTLINE_READY] in the assistant message → automatically start
+            // rendering. The user does not press a button.
+            if (ready) {
+              void triggerRender();
+            }
           },
           onError: (msg) => {
             setStreamError(msg);
@@ -180,42 +238,23 @@ export default function SlideSessionPage() {
         },
       );
     },
-    [sessionId, bumpUpdatedAt, refreshSlides],
+    [sessionId, bumpUpdatedAt, refreshSlides, triggerRender],
   );
-
-  // Find the most recent assistant message that emitted [OUTLINE_READY] —
-  // used to decide whether the Render button is enabled.
-  const latestReadyOutline = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "assistant" && hasOutlineReady(m.content)) return m;
-    }
-    return null;
-  })();
-
-  async function handleRender() {
-    if (!latestReadyOutline) return;
-    setRendering(true);
-    setRenderError(null);
-    try {
-      const updated = await renderSlideSession(sessionId);
-      patchSession(sessionId, {
-        status: updated.status,
-        has_pptx: updated.has_pptx,
-      });
-    } catch (err) {
-      setRenderError(detailMessage(err));
-    } finally {
-      setRendering(false);
-    }
-  }
 
   async function handleDownload() {
     if (!session) return;
     try {
       await downloadSlideSession(sessionId, session.title);
     } catch (err) {
-      setRenderError(detailMessage(err));
+      setRenderState((cur) =>
+        cur
+          ? {
+              phase: "error",
+              elapsedSec: cur.phase === "rendered" ? (cur.elapsedSec ?? 0) : 0,
+              message: detailMessage(err),
+            }
+          : cur,
+      );
     }
   }
 
@@ -312,15 +351,6 @@ export default function SlideSessionPage() {
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            {session.has_pptx ? (
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
-              >
-                <Download className="h-3.5 w-3.5" /> Download
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={handleDelete}
@@ -356,6 +386,11 @@ export default function SlideSessionPage() {
               streaming
             />
           ) : null}
+          {/* Render progress / completion / error all shown as an inline
+              bubble so the entire flow stays in the conversation surface. */}
+          {renderState ? (
+            <RenderBubble state={renderState} onDownload={handleDownload} />
+          ) : null}
           {streamError ? (
             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               Stream error: {streamError}
@@ -365,46 +400,80 @@ export default function SlideSessionPage() {
         </div>
       </div>
 
-      {/* Render bar appears whenever an outline is marked ready. */}
-      {latestReadyOutline && !isStreaming ? (
-        <div className="border-t border-border bg-amber-50 px-4 py-3">
-          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
-            <div className="text-xs text-amber-900">
-              <Sparkles className="mr-1 inline h-3.5 w-3.5" />
-              The outline is ready. Click Render to produce the PPTX via
-              Presenton (about 20–60s).
-            </div>
-            <div className="flex items-center gap-2">
-              {renderError ? (
-                <span className="text-xs text-red-700">{renderError}</span>
-              ) : null}
-              <button
-                type="button"
-                onClick={handleRender}
-                disabled={rendering}
-                className="flex items-center gap-1 rounded-md bg-amber-600 px-3 py-1.5 text-xs text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {rendering ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering…
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-3.5 w-3.5" /> Render slides
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <ChatInput
         knowledgeBases={knowledgeBases}
-        disabled={isStreaming || rendering}
+        disabled={isStreaming || renderState?.phase === "rendering"}
         onSend={handleSend}
       />
     </section>
+  );
+}
+
+function RenderBubble({
+  state,
+  onDownload,
+}: {
+  state:
+    | { phase: "rendering"; startedAt: number; elapsedSec: number }
+    | { phase: "rendered"; elapsedSec: number | null }
+    | { phase: "error"; elapsedSec: number; message: string };
+  onDownload: () => void;
+}) {
+  function formatElapsed(s: number): string {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${sec}s`;
+  }
+  return (
+    <div className="flex items-start gap-2">
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-white text-foreground"
+        aria-label="Slide Maker"
+      >
+        <Sparkles className="h-4 w-4" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <div className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
+          {state.phase === "rendering" ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                Rendering presentation via Presenton…{" "}
+                <span className="text-muted-foreground">
+                  ({formatElapsed(state.elapsedSec)})
+                </span>
+              </span>
+            </div>
+          ) : state.phase === "rendered" ? (
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <span>
+                {state.elapsedSec != null
+                  ? `Rendered in ${formatElapsed(state.elapsedSec)}.`
+                  : "Latest render is ready."}
+              </span>
+              <button
+                type="button"
+                onClick={onDownload}
+                className="ml-2 inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-1 text-xs text-white hover:bg-foreground/90"
+              >
+                <Download className="h-3.5 w-3.5" /> Download .pptx
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <div>
+                  Render failed after {formatElapsed(state.elapsedSec)}.
+                </div>
+                <div className="mt-1 text-xs">{state.message}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
