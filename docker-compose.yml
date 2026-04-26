@@ -19,10 +19,14 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
-      - qdrant
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
 
   worker:
     container_name: knowledgedeck_worker
@@ -32,10 +36,14 @@ services:
     env_file:
       - .env
     depends_on:
-      - redis
-      - postgres
-      - qdrant
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
 
   postgres:
     container_name: knowledgedeck_postgres
@@ -48,6 +56,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # `depends_on` only waits for the container to start, not for postgres
+      # to accept connections. Without this, the backend's alembic upgrade
+      # races postgres init and exits with "Connection refused".
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-knowledgedeck} -d ${POSTGRES_DB:-knowledgedeck}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
 
   redis:
     container_name: knowledgedeck_redis
