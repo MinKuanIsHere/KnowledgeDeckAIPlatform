@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, MessageSquare, MessageSquarePlus, Plus, Search, Trash2 } from "lucide-react";
+import { LogOut, MessageSquare, MessageSquarePlus, Plus, Presentation, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -31,6 +31,7 @@ export function AppSidebar() {
   const activeSid = activeSidParam ? Number(activeSidParam) : null;
   const onChatPage = pathname === "/";
   const onKbPage = pathname?.startsWith("/knowledge-bases") ?? false;
+  const onSlidesPage = pathname?.startsWith("/slides") ?? false;
 
   useEffect(() => {
     if (!loaded) refresh();
@@ -83,6 +84,17 @@ export function AppSidebar() {
         >
           <Search className="h-4 w-4" />
           Knowledge Bases
+        </Link>
+        <Link
+          href="/slides"
+          className={`flex items-center gap-2 rounded-md px-3 py-2 ${
+            onSlidesPage
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          <Presentation className="h-4 w-4" />
+          Slides
         </Link>
       </nav>
 
