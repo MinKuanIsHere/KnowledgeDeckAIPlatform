@@ -52,6 +52,18 @@ export async function createKnowledgeBase(input: {
   return res.data;
 }
 
+export async function updateKnowledgeBase(
+  id: number,
+  input: { name?: string; description?: string | null },
+): Promise<KnowledgeBaseCreated> {
+  // Pass empty string to clear description; omit a field to leave it alone.
+  const body: Record<string, unknown> = {};
+  if (input.name !== undefined) body.name = input.name;
+  if (input.description !== undefined) body.description = input.description ?? "";
+  const res = await api.patch<KnowledgeBaseCreated>(`/knowledge-bases/${id}`, body);
+  return res.data;
+}
+
 export async function deleteKnowledgeBase(id: number): Promise<void> {
   await api.delete(`/knowledge-bases/${id}`);
 }

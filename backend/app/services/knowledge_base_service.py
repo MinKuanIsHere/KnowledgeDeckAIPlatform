@@ -83,3 +83,23 @@ async def soft_delete_kb_cascade(
     )
     kb.deleted_at = now
     await session.commit()
+
+
+async def update_knowledge_base(
+    session: AsyncSession,
+    *,
+    kb: KnowledgeBase,
+    name: str | None,
+    description: str | None,
+) -> KnowledgeBase:
+    """Apply name/description changes in place. Caller is responsible for the
+    duplicate-name check (so the API can return a clean 409)."""
+    if name is not None:
+        kb.name = name
+    # `description` of `None` from the API means "no change". Use sentinel-free
+    # patch by accepting only meaningful values; pass empty string to clear.
+    if description is not None:
+        kb.description = description or None
+    await session.commit()
+    await session.refresh(kb)
+    return kb

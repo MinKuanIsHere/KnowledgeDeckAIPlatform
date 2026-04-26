@@ -15,6 +15,14 @@ class KnowledgeBaseCreate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
+class KnowledgeBaseUpdate(BaseModel):
+    """Partial update. Omitted fields stay unchanged. To clear `description`,
+    pass an empty string."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+
+
 class KnowledgeBaseOut(BaseModel):
     id: int
     name: str
@@ -64,6 +72,30 @@ async def list_kbs(
         )
         for kb, cnt in items
     ]
+
+
+@router.patch("/{kb_id}", response_model=KnowledgeBaseOut)
+async def update_kb(
+    kb_id: int,
+    body: KnowledgeBaseUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> KnowledgeBaseOut:
+    kb = await svc.get_owned_kb(session, owner_user_id=user.id, kb_id=kb_id)
+    if kb is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="kb_not_found")
+    if body.name is not None and body.name != kb.name:
+        if await svc.name_taken(session, owner_user_id=user.id, name=body.name):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="duplicate_kb_name")
+    kb = await svc.update_knowledge_base(
+        session, kb=kb, name=body.name, description=body.description
+    )
+    return KnowledgeBaseOut(
+        id=kb.id,
+        name=kb.name,
+        description=kb.description,
+        created_at=kb.created_at.isoformat(),
+    )
 
 
 @router.delete("/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
