@@ -1415,7 +1415,9 @@ COPY alembic.ini ./alembic.ini
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080"]
+# `exec` makes uvicorn replace the wrapping `sh` as PID 1 so SIGTERM from
+# `docker stop` reaches uvicorn directly instead of being swallowed by dash.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8080"]
 ```
 
 - [ ] **Step 6: Validate Docker Compose still renders**
