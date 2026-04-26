@@ -41,44 +41,73 @@ HISTORY_MAX_MESSAGES = 20
 
 
 _REWRITE_SYSTEM = (
-    "You rewrite chat questions into standalone search queries.\n"
-    "Input: a short conversation history followed by the user's most recent "
-    "question. The recent question may use pronouns ('that', 'it', 'this one'), "
-    "elliptical references ('and Python?'), or implicit context that only "
-    "makes sense relative to the prior turns.\n"
-    "Output: a single self-contained query suitable for a vector search "
-    "engine. Resolve all references inline. Do not add quotation marks. Do "
-    "not explain. Do not prefix with 'Query:'. Output ONE LINE only.\n"
-    "If the recent question is already standalone, output it unchanged."
+    "You rewrite user questions into standalone search queries optimized "
+    "for retrieval against a knowledge base, where a cross-encoder "
+    "reranker scores (query, passage) pairs. Cross-encoders work best on "
+    "natural-language queries with full canonical terms, not bare tokens "
+    "or abbreviations.\n\n"
+    "You may receive:\n"
+    "- A first-turn question (no conversation history above).\n"
+    "- A follow-up question that uses pronouns ('that', 'it', 'this "
+    "one'), elliptical references ('and Python?'), or implicit context "
+    "that only makes sense relative to the prior turns.\n\n"
+    "Apply these rules in order:\n"
+    "1. Resolve all pronouns / references / ellipsis against the history.\n"
+    "2. Replace technical abbreviations with their full canonical form. "
+    "Drop the abbreviation entirely — do NOT keep it in parentheses, "
+    "because parenthetical noise lowers cross-encoder rerank scores. "
+    "Examples:\n"
+    "   k8s -> Kubernetes\n"
+    "   aws -> Amazon Web Services\n"
+    "   gpu -> graphics processing unit\n"
+    "   ml  -> machine learning\n"
+    "   db  -> database\n"
+    "3. If the question is a single bare term (one word or one acronym), "
+    "reformulate it into a natural question. Examples:\n"
+    "   'Kubernetes'  -> 'What is Kubernetes?'\n"
+    "   'embeddings'  -> 'What are embeddings?'\n"
+    "   'k8s'         -> 'What is Kubernetes?'\n"
+    "4. If the question is already a complete natural-language question "
+    "with no abbreviations and no references to resolve, output it "
+    "unchanged.\n\n"
+    "Output: ONE LINE. The rewritten query only. No quotation marks. No "
+    "'Query:' prefix. No explanation."
 )
 
 
 async def rewrite_for_retrieval(
     history: list[ChatMessage], user_message: str
 ) -> str:
-    """Returns a standalone query string, suitable for embedding.
+    """Rewrite the user's question into a standalone, abbreviation-expanded
+    query for the retrieval pipeline.
 
-    No-op (returns user_message verbatim) when history is empty — first
-    turns are already standalone. On any LLM error, also falls back to
-    user_message so retrieval still works.
+    Always runs when called (chat path gates this on `use_rag=true`).
+    First-turn queries pay one extra LLM call for the chance to expand
+    abbreviations like "k8s" / "aws" — without it, cross-encoder rerank
+    scores those tokens far below threshold and citations vanish.
+
+    On any LLM error or off-rails output, falls back to the raw user
+    message so retrieval still runs.
     """
-    if not history:
-        return user_message
-    # Compress to last few turns for the rewriter's context — full history
-    # is overkill and slow.
-    recent = history[-6:]
-    transcript_lines: list[str] = []
-    for m in recent:
-        role = "User" if m.role is ChatRole.USER else "Assistant"
-        # Trim long assistant responses; only the gist matters for reference
-        # resolution.
-        body = m.content if len(m.content) <= 400 else m.content[:400] + "..."
-        transcript_lines.append(f"{role}: {body}")
-    prompt = (
-        "Conversation history:\n"
-        + "\n".join(transcript_lines)
-        + f"\n\nMost recent question:\n{user_message}\n\nStandalone query:"
-    )
+    if history:
+        # Multi-turn: feed the rewriter the recent history so it can
+        # resolve pronouns/ellipsis. Long assistant turns are clipped
+        # because only the gist matters for reference resolution.
+        recent = history[-6:]
+        transcript_lines: list[str] = []
+        for m in recent:
+            role = "User" if m.role is ChatRole.USER else "Assistant"
+            body = m.content if len(m.content) <= 400 else m.content[:400] + "..."
+            transcript_lines.append(f"{role}: {body}")
+        prompt = (
+            "Conversation history:\n"
+            + "\n".join(transcript_lines)
+            + f"\n\nMost recent question:\n{user_message}\n\nStandalone query:"
+        )
+    else:
+        # First turn: no history to resolve against; rewriter still
+        # handles abbreviation expansion + bare-term reformulation.
+        prompt = f"Question:\n{user_message}\n\nStandalone search query:"
 
     s = get_settings()
     try:

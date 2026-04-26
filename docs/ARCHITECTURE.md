@@ -306,22 +306,42 @@ Step 5. Format into "Context:" block + citations
 - **Pre-rerank** dense+sparse ranking is noisy — bge-m3 scores can swing ~0.05 between near-duplicate queries, so the top-5 order isn't stable. Cross-encoder reads the (query, passage) pair and returns a relevance score that's robust to rephrasings.
 - **Threshold** lets us return `("", [])` when nothing is relevant. Otherwise the LLM gets unrelated context and tries to ground answers in it — strictly worse than letting the LLM use general knowledge.
 
-### Query rewriting (chat-only, in `chat_service.rewrite_for_retrieval`)
+### Query rewriting (chat-only, every RAG-enabled turn)
 
-Multi-turn followups are not standalone:
+`chat_service.rewrite_for_retrieval(history, user_message)` runs on every chat request that has `use_rag=true`. It does three jobs:
 
-```
-User turn 1: "Tell me about Kubernetes pods"
-User turn 2: "And what about deployments?"   ← references turn 1
-```
-
-Embedding "And what about deployments?" against the KB drags retrieval off-topic. The rewriter is a small no-temperature LLM call that produces:
+**1. Multi-turn reference resolution**
 
 ```
-"What about Kubernetes deployments? How do they relate to pods?"
+turn 1: "Tell me about Kubernetes pods"
+turn 2: "And what about deployments?"   ← needs turn 1 to make sense
+
+→ "What about Kubernetes deployments? How do they relate to pods?"
 ```
 
-Skipped on first turn (no history) and when `use_rag=false`. Falls back to raw user message if the rewriter LLM call fails.
+**2. Abbreviation expansion** — without this, cross-encoder rerank scores `"k8s"` against Kubernetes documents at ~0.0005 (well below the 0.10 threshold), producing zero citations even when hybrid search clearly surfaces the right file:
+
+```
+"k8s"              →  "What is Kubernetes?"
+"aws"              →  "What is Amazon Web Services?"
+"ml"               →  "What is machine learning?"
+"gpu"              →  "What is a graphics processing unit?"
+```
+
+We deliberately *do not* keep the abbreviation in parentheses. Tested empirically:
+- `"What is Kubernetes?"`        → rerank 0.66
+- `"What is Kubernetes (k8s)?"`  → rerank 0.04 ← parenthetical noise tanks the score
+
+**3. Bare-term reformulation** — single-word / single-acronym queries get reshaped into natural questions:
+
+```
+"Kubernetes"   →  "What is Kubernetes?"
+"embeddings"   →  "What are embeddings?"
+```
+
+If the user already typed a complete natural-language question, the rewriter passes it through unchanged.
+
+**Cost**: one extra LLM call per RAG-enabled chat turn (~200-400ms with `temperature=0`, `max_tokens=128`). Falls back to the raw user message on any rewriter failure or off-rails output.
 
 **Slide Maker does NOT use the rewriter.** Slide planner conversations have a stable topic anchor — the deck's first user message (`"3 slides about Kubernetes basics"`). Subsequent turns are clarifying questions / iteration tweaks ("yes render", "more about networking") that should re-retrieve against the original topic, not the literal turn message.
 

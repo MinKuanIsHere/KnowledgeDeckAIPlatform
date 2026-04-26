@@ -105,8 +105,14 @@ This is what actually happens when you tick **Use RAG** in chat or slide maker. 
 
 ```
                 ┌────────────────────────────────────────┐
-your question  ─┤  rewriter (chat-only, multi-turn)     │
-                │  resolves "and that one?" → standalone│
+your question  ─┤  rewriter (chat-only, every turn)     │
+                │  • resolves multi-turn references     │
+                │    "and that one?" → standalone       │
+                │  • expands abbreviations              │
+                │    "k8s" → "What is Kubernetes?"      │
+                │  • reformulates bare terms            │
+                │    "embeddings" → "What are           │
+                │     embeddings?"                       │
                 └──────────────────┬─────────────────────┘
                                    │
               ┌────────────────────┴────────────────────┐
@@ -153,20 +159,39 @@ your question  ─┤  rewriter (chat-only, multi-turn)     │
 
 **If step 4 fails, you still get an answer, just without citations.** The chat system prompt instructs the LLM to fall back to general knowledge when no `Context:` block is provided. So the model may still write something correct — but it's its own knowledge, not yours.
 
-### Known limitation: short / abbreviation queries
+### Why the rewriter runs on every turn (chat)
 
-Cross-encoder rerankers like `bge-reranker-v2-m3` are trained on natural-language queries. They underperform on:
+Cross-encoder rerankers like `bge-reranker-v2-m3` are trained on natural-language queries. They score badly on:
 
-- **Abbreviations**: query `"k8s"` against documents about Kubernetes scores ~0.0005 (well below 0.10), even though hybrid search correctly surfaces `kubernetes_basics.txt` at the top.
-- **Single-token / single-acronym queries**: `"AWS"`, `"GPU"`, `"ML"` may hit the same wall.
-- **Bare technical terms**: `"primary color CSS variable"` vs a CSS file defining `--primary` — the rerank pair-scoring isn't strong enough.
+- **Abbreviations** — query `"k8s"` directly against Kubernetes documents scores ~0.0005 (well below threshold), even though hybrid search puts the right file at the top.
+- **Single-token / single-acronym queries** — `"AWS"`, `"GPU"`, `"ML"` hit the same wall.
+- **Bare technical terms** — `"embeddings"`, `"BTREE"`, `"hooks"`.
 
-In these cases:
-- Hybrid search **does** find the right chunks (you can verify by checking `RAG_RERANK_MIN_SCORE=0.0` temporarily).
-- The reranker fails to recognize the relevance.
-- Threshold drops everything → no citations.
+Without intervention these all return zero citations even when the documents are clearly there.
 
-The robust fix is **query rewriting**: have a small LLM call expand abbreviations and reformulate short queries into a fuller form (`"k8s"` → `"What is Kubernetes (k8s)?"`) before embedding. The rewriter is already implemented in `chat_service.rewrite_for_retrieval` but currently only runs on multi-turn followups. Extending it to first-turn rewrites (with a "expand abbreviations" instruction) is on the roadmap.
+**The chat path runs the rewriter (`chat_service.rewrite_for_retrieval`) on every RAG-enabled turn**, including the first turn. It does three things:
+
+| Input pattern | Rewriter output |
+|---|---|
+| Multi-turn pronoun / ellipsis | resolves the reference against history |
+| Abbreviation | replaces with canonical form (no parens — parenthetical noise drops cross-encoder score; verified empirically) |
+| Bare term | reformulates into a natural question |
+| Already-formed natural question | unchanged |
+
+Concrete observed behavior:
+
+```
+"k8s"                    → "What is Kubernetes?"      (4 citations ✓)
+"aws"                    → "What is Amazon Web Services?"
+"ml"                     → "What is machine learning?"
+"embeddings"             → "What are embeddings?"
+"What is Kubernetes?"    → unchanged                   (already good)
+"and that one?"          → resolved against history
+```
+
+Cost: one extra small LLM call (~200-400ms, `temperature=0`, `max_tokens=128`) per RAG-enabled chat turn. Acceptable for the abbreviation-recall payoff. On any rewriter failure the request falls back to the raw user message.
+
+**Slide Maker does NOT rewrite per turn.** Slide planner conversations have a stable topic anchor (the deck's first user message), and that's what feeds RAG. Iteration turns ("yes render", "more on networking") aren't standalone questions and shouldn't drive retrieval.
 
 ### Tuning knobs
 
@@ -181,7 +206,8 @@ All in `.env`:
 
 To diagnose a "no citation" case:
 1. Check the assistant reply — if it's still answering correctly, the LLM is using general knowledge.
-2. Try the same query with the full term spelled out (e.g., `"Kubernetes"` instead of `"k8s"`).
+2. Check what the rewriter produced (via backend logs or by calling `chat_service.rewrite_for_retrieval` directly). If the rewriter went off the rails the raw query was used as fallback.
+3. Try the same query with the full term spelled out (e.g., `"Kubernetes"` instead of `"k8s"`).
 3. If full-term works but abbreviation doesn't, that's the rerank-on-short-query limitation above.
 4. If neither works and the file is genuinely in the KB, lower `RAG_RERANK_MIN_SCORE` temporarily to confirm threshold is the gate, then file an issue (or push for the query-rewriter extension).
 
