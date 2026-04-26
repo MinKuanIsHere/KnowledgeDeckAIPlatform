@@ -96,7 +96,7 @@ services:
 
   vllm_chat:
     container_name: knowledgedeck_vllm_chat
-    image: vllm/vllm-openai:gemma4
+    image: vllm/vllm-openai:v0.19.1-x86_64-cu130
     profiles: ["gpu"]
     ipc: host
     environment:
@@ -116,8 +116,10 @@ services:
       - ${VLLM_CHAT_GPU_MEMORY_UTILIZATION:-0.70}
       - --max-model-len
       - ${VLLM_CHAT_MAX_MODEL_LEN:-16384}
+      # vLLM 0.19+ requires JSON for --limit-mm-per-prompt. We disable
+      # image/audio inputs because the chat flow is text-only.
       - --limit-mm-per-prompt
-      - image=0,audio=0
+      - '{"image":0,"audio":0}'
     deploy:
       resources:
         reservations:
@@ -128,7 +130,7 @@ services:
 
   vllm_embedding:
     container_name: knowledgedeck_vllm_embedding
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:v0.19.1-x86_64-cu130
     profiles: ["gpu"]
     ipc: host
     environment:
