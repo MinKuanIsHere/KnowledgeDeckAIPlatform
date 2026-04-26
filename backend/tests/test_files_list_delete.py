@@ -1,8 +1,6 @@
 import io
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from app.db.models import User
 
 
@@ -100,14 +98,26 @@ async def test_delete_file_twice_returns_404(http_client, alice: User) -> None:
 
 
 @pytest.mark.asyncio
-async def test_kb_delete_cascades_to_files(http_client, alice: User) -> None:
-    kb_id, _ = await make_kb_and_file(http_client, alice)
+async def test_kb_delete_cascades_to_files(
+    http_client, alice: User, db_session
+) -> None:
+    from sqlalchemy import select
+
+    from app.db.models import KnowledgeFile
+
+    kb_id, file_id = await make_kb_and_file(http_client, alice)
     await http_client.delete(f"/knowledge-bases/{kb_id}", headers=auth(alice))
     # KB now hidden — listing files would also 404 because KB lookup fails first.
     res = await http_client.get(
         f"/knowledge-bases/{kb_id}/files", headers=auth(alice)
     )
     assert res.status_code == 404
+    # Verify the cascade actually marked the file row, not just the KB.
+    file_row = await db_session.scalar(
+        select(KnowledgeFile).where(KnowledgeFile.id == file_id)
+    )
+    assert file_row is not None
+    assert file_row.deleted_at is not None
 
 
 @pytest.mark.asyncio

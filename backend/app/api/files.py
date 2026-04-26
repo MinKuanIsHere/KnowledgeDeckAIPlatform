@@ -63,6 +63,19 @@ async def _load_owned_kb(
     return kb
 
 
+def _file_out(r: KnowledgeFile) -> FileOut:
+    return FileOut(
+        id=r.id,
+        knowledge_base_id=r.knowledge_base_id,
+        filename=r.filename,
+        extension=r.extension,
+        size_bytes=r.size_bytes,
+        status=r.status.value,
+        status_error=r.status_error,
+        created_at=r.created_at.isoformat(),
+    )
+
+
 @router.post(
     "/{kb_id}/files", response_model=FileOut, status_code=status.HTTP_201_CREATED
 )
@@ -132,16 +145,7 @@ async def upload_file(
     await session.commit()
     await session.refresh(row)
 
-    return FileOut(
-        id=row.id,
-        knowledge_base_id=row.knowledge_base_id,
-        filename=row.filename,
-        extension=row.extension,
-        size_bytes=row.size_bytes,
-        status=row.status.value,
-        status_error=row.status_error,
-        created_at=row.created_at.isoformat(),
-    )
+    return _file_out(row)
 
 
 @router.get("/{kb_id}/files", response_model=list[FileOut])
@@ -159,19 +163,7 @@ async def list_files(
         )
         .order_by(KnowledgeFile.created_at.desc())
     )
-    return [
-        FileOut(
-            id=r.id,
-            knowledge_base_id=r.knowledge_base_id,
-            filename=r.filename,
-            extension=r.extension,
-            size_bytes=r.size_bytes,
-            status=r.status.value,
-            status_error=r.status_error,
-            created_at=r.created_at.isoformat(),
-        )
-        for r in rows.all()
-    ]
+    return [_file_out(r) for r in rows.all()]
 
 
 @router.delete("/{kb_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
