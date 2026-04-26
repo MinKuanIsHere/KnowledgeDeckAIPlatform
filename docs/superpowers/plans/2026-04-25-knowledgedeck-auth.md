@@ -1829,9 +1829,21 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const setSession = useAuthStore((s) => s.setSession);
   const clearSession = useAuthStore((s) => s.clearSession);
+  // Wait for Zustand persist to finish reading from localStorage before
+  // deciding whether the user is authenticated. Without this gate, a page
+  // reload with a valid persisted token briefly sees `token === null` and
+  // redirects to /login before hydration completes.
+  const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated());
   const [verified, setVerified] = useState(false);
 
   useEffect(() => {
+    if (hydrated) return;
+    const unsub = useAuthStore.persist.onFinishHydration(() => setHydrated(true));
+    return unsub;
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     if (!token) {
       router.replace("/login");
       return;
@@ -1852,9 +1864,9 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [token, router, setSession, clearSession]);
+  }, [hydrated, token, router, setSession, clearSession]);
 
-  if (!verified) return null;
+  if (!hydrated || !verified) return null;
   return <>{children}</>;
 }
 ```
@@ -1937,6 +1949,13 @@ const ERROR_KEYS: Record<string, string> = {
   invalid_credentials: "auth.error.invalid_credentials",
 };
 
+// Hardcoded English fallbacks shown to users until the i18n layer lands.
+// `data-error-key` carries the stable code for tests and future i18n lookup.
+const ERROR_FALLBACKS: Record<string, string> = {
+  "auth.error.invalid_credentials": "Incorrect username or password.",
+  "auth.error.network": "Could not reach the server. Please try again.",
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
@@ -2004,7 +2023,7 @@ export default function LoginPage() {
         </div>
         {errorKey ? (
           <div data-testid="login-error" data-error-key={errorKey} className="text-sm text-red-600">
-            {errorKey}
+            {ERROR_FALLBACKS[errorKey] ?? errorKey}
           </div>
         ) : null}
         <button

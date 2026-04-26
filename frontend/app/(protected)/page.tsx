@@ -1,13 +1,27 @@
-import { FileText, MessageSquare, Presentation, Search } from "lucide-react";
+"use client";
+
+import { FileText, LogOut, MessageSquare, Presentation, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+import { useAuthStore } from "../../lib/auth-store";
 
 const navItems = [
   { label: "Chat", icon: MessageSquare },
   { label: "Knowledge", icon: Search },
   { label: "Documents", icon: FileText },
-  { label: "Slides", icon: Presentation }
+  { label: "Slides", icon: Presentation },
 ];
 
 export default function Home() {
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const clearSession = useAuthStore((s) => s.clearSession);
+
+  function handleLogout() {
+    clearSession();
+    router.push("/login");
+  }
+
   return (
     <main className="flex min-h-screen bg-background text-foreground">
       <aside className="hidden w-64 border-r border-border bg-white/80 px-4 py-5 md:block">
@@ -24,6 +38,17 @@ export default function Home() {
             </button>
           ))}
         </nav>
+        <div className="mt-6 border-t border-border pt-4 text-xs text-muted-foreground">
+          <div className="mb-2 truncate" title={user?.username}>{user?.username ?? ""}</div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </button>
+        </div>
       </aside>
       <section className="flex flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-border bg-white/80 px-4">
