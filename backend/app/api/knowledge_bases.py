@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,9 +71,8 @@ async def delete_kb(
     kb_id: int,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> Response:
+) -> None:
     kb = await svc.get_owned_kb(session, owner_user_id=user.id, kb_id=kb_id)
     if kb is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="kb_not_found")
     await svc.soft_delete_kb_cascade(session, kb=kb)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

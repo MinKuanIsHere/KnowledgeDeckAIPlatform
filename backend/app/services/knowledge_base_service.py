@@ -17,7 +17,6 @@ async def create_knowledge_base(
         owner_user_id=owner_user_id, name=name, description=description
     )
     session.add(kb)
-    await session.flush()
     await session.commit()
     await session.refresh(kb)
     return kb

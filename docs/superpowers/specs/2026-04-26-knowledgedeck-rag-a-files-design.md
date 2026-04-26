@@ -240,10 +240,10 @@ Sets `deleted_at = now()`. MinIO untouched.
 
 ### Error response format
 
-Reuses the auth feature's existing shape:
+Matches the existing auth feature's shape — a flat string code in `detail`:
 
 ```json
-{ "detail": { "code": "duplicate_filename", "message": "..." } }
+{ "detail": "duplicate_filename" }
 ```
 
 Codes used: `kb_not_found`, `duplicate_kb_name`, `duplicate_filename`,

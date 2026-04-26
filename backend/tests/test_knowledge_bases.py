@@ -1,5 +1,4 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
 
 from app.db.models import User
 
@@ -20,15 +19,6 @@ async def bob(db_session) -> User:
     await db_session.commit()
     await db_session.refresh(user)
     return user
-
-
-@pytest.fixture()
-async def http_client():
-    from app.main import create_app
-
-    transport = ASGITransport(app=create_app())
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        yield client
 
 
 def auth(user: User) -> dict[str, str]:

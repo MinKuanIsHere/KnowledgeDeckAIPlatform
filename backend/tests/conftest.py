@@ -104,3 +104,14 @@ def _patch_app_storage(monkeypatch, minio_settings) -> None:
         secure=False,
     )
     monkeypatch.setattr(storage, "_client", client, raising=False)
+
+
+@pytest.fixture()
+async def http_client():
+    """ASGI test client backed by a fresh app instance per test."""
+    from app.main import create_app
+    from httpx import ASGITransport, AsyncClient
+
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
