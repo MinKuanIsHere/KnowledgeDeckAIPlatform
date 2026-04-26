@@ -292,6 +292,33 @@ curl -s http://localhost:8080/llm/info -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:8080/ready
 ```
 
+### 5. Bringing the stack down
+
+```bash
+# Stop everything (containers, network).
+# IMPORTANT: include --profile gpu so vLLM containers are stopped too —
+# without the flag they keep running and the network can't be removed.
+docker compose --profile gpu down
+```
+
+Other useful variants:
+
+```bash
+# Same, plus delete all volumes (Postgres / MinIO / Qdrant / Presenton
+# data + the Hugging Face model cache). Destructive — only run if you
+# really want a clean slate.
+docker compose --profile gpu down -v
+
+# Stop + restart all services without losing data:
+docker compose --profile gpu restart
+
+# Tail logs from one service:
+docker compose logs -f backend
+```
+
+**Symptom**: `! Network knowledgedeck_net   Resource is still in use`
+→ You ran `docker compose down` without `--profile gpu` while the GPU-profile services were still up. Re-run with `--profile gpu`.
+
 ---
 
 ## Configuration
