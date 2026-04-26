@@ -8,7 +8,7 @@ KnowledgeDeck is an internal AI platform for chat, personal RAG knowledge bases,
 
 ## Confirmed Decisions
 
-- Authentication uses JWT.
+- **Authentication is intentionally minimal for MVP**: admin inserts username + plaintext password via CLI; login compares plaintext; the returned bearer token is the opaque string `u_<user_id>`. No JWT, no password hashing, no logout endpoint, no login_logs, no token expiry. Sole purpose is user identification for data isolation. Phase 4 (Security Hardening) will add hashing, JWT, refresh tokens, audit logs, rate limiting, and admin role enforcement.
 - Frontend uses Next.js, React, TypeScript, Tailwind CSS, and shadcn/ui.
 - UI direction follows Open WebUI and Perplexity: compact, chat-first, clean retrieval-oriented screens.
 - Backend uses FastAPI.
@@ -20,26 +20,30 @@ KnowledgeDeck is an internal AI platform for chat, personal RAG knowledge bases,
 - Docker Compose includes two vLLM services: one for chat and one for embeddings.
 - MVP deployment target is one RTX 4090 24GB GPU, even though the machine has four GPUs.
 - All Docker container names use the `knowledgedeck_*` prefix.
+- **MVP RAG file formats are intentionally narrow**: TXT, PDF, CS (C# source) only. Other formats (PPTX, DOCX, Markdown, CSV, XLSX, HTML, OCR images, audio transcripts) are Phase 2.
 
 ## MVP Scope
 
 The MVP includes:
 
-- Login and logout.
-- JWT-protected API access.
+- Minimum-viable login (username + plaintext password compare → opaque `u_<id>` token in `Authorization: Bearer` header).
+- Token-protected API access via a `get_current_user` dependency that parses `u_<id>` and loads the row.
 - Streaming LLM chat.
 - Conversation history.
-- File upload for PDF, PPTX, and DOCX.
-- Document parsing, chunking, embedding, and indexing.
+- File upload for TXT, PDF, and CS (C# source) only.
+- Document parsing (text extraction; CS is treated as plain text), chunking, embedding, and indexing.
 - Personal RAG knowledge base.
 - RAG answer generation with citations.
-- Citation metadata containing file, chunk, and page or slide number.
+- Citation metadata containing file, chunk, and page or line-range when available.
 - PPTX generation and download.
 - Basic RAG management UI.
 - Docker Compose deployment.
 
 The MVP excludes:
 
+- Password hashing, JWT, refresh tokens, token revocation, login audit logs, IP/UA tracking, rate limiting, account disable flag, admin role API enforcement, logout endpoint — all deferred to Phase 4 (Security Hardening).
+- File formats other than TXT/PDF/CS — PPTX, DOCX, Markdown, CSV, XLSX, HTML, OCR, audio transcripts deferred to Phase 2.
+- Code-aware (AST/tree-sitter) chunking for CS files — MVP uses plain-text chunking only.
 - Shared admin knowledge bases.
 - Fine-grained role and group permissions.
 - Hybrid retrieval.
@@ -167,14 +171,13 @@ Complex PPTX template parsing is postponed. Slide JSON should remain renderer-ne
 
 ## Data Isolation
 
-All user-owned records must include `user_id`. RAG retrieval must apply user filters before returning chunks. Admin shared knowledge bases are out of MVP scope, but the schema should leave room for `knowledge_base.scope` values such as `personal` and `shared`.
+All user-owned records must include `user_id`. RAG retrieval must apply user filters before returning chunks. Admin shared knowledge bases are out of MVP scope, but the schema should leave room for `knowledge_base.scope` values such as `personal` and `shared`. The MVP `users` table itself does not carry an `is_admin` flag — admin status is implicit (whoever has shell access to run the CLI). Phase 4 will introduce a real role column when the admin web UI ships.
 
 ## API Surface
 
 MVP APIs:
 
 - `POST /auth/login`
-- `POST /auth/logout`
 - `GET /auth/me`
 - `POST /chat/stream`
 - `GET /chat/sessions`
@@ -192,6 +195,8 @@ MVP APIs:
 - `GET /slides/projects/{id}`
 - `GET /slides/projects/{id}/download`
 
+`POST /auth/logout` is intentionally excluded from MVP (logout is purely a client-side operation: the frontend clears the locally stored token; there is no server-side session to invalidate). It will be added in Phase 4 along with token revocation and audit logging.
+
 ## Error Handling
 
 - Streaming chat errors must return a visible terminal error event to the frontend.
@@ -204,10 +209,10 @@ MVP APIs:
 
 Backend tests should cover:
 
-- JWT auth and protected routes.
+- Login (correct/incorrect password), `get_current_user` token parsing, protected-route rejection without bearer.
 - OpenAI-compatible chat and embedding client request formatting.
-- Document chunk metadata creation.
-- RAG retrieval permission filtering.
+- Document chunk metadata creation (TXT/PDF/CS parsers).
+- RAG retrieval permission filtering by `user_id`.
 - Citation serialization.
 - Slide JSON validation.
 - PPTX renderer smoke test.
