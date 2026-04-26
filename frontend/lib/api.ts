@@ -20,7 +20,11 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    // 401 on the login endpoint itself is "wrong credentials" — the form
+    // owns the error display, so skip the global session-clear + redirect.
+    const requestUrl = error.config?.url ?? "";
+    const isLoginRequest = requestUrl.endsWith("/auth/login");
+    if (error.response?.status === 401 && !isLoginRequest) {
       useAuthStore.getState().clearSession();
       if (typeof window !== "undefined" && window.location.pathname !== "/login") {
         window.location.replace("/login");

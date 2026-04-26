@@ -51,4 +51,17 @@ describe("api axios instance", () => {
     await expect(api.post("/auth/login", {})).rejects.toThrow();
     expect(replaceMock).not.toHaveBeenCalled();
   });
+
+  it("does not clear session when login itself returns 401", async () => {
+    // A logged-in user submitting wrong creds on /login should keep their
+    // session — the form owns the error display.
+    useAuthStore.getState().setSession("u_7", { id: 7, username: "alice" });
+    mock.onPost("/auth/login").reply(401, { detail: "invalid_credentials" });
+    const replaceMock = vi.fn();
+    vi.stubGlobal("location", { ...window.location, pathname: "/dashboard", replace: replaceMock });
+
+    await expect(api.post("/auth/login", {})).rejects.toThrow();
+    expect(useAuthStore.getState().token).toBe("u_7");
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
 });

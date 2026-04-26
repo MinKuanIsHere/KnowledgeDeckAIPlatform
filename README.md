@@ -10,27 +10,30 @@ KnowledgeDeck is an internal AI platform for LLM chat, personal RAG knowledge ba
 
 ## Local Setup
 
-Copy the example environment file:
+**First, copy the example environment file** — every Docker Compose command below requires `.env` to exist (the `backend` and `worker` services declare `env_file: - .env`):
 
 ```bash
 cp .env.example .env
 ```
 
-Run backend tests:
+Edit `.env` to set your `INITIAL_USER_USERNAME` / `INITIAL_USER_PASSWORD` (these seed the first admin user on `docker compose up`; defaults are `admin` / `admin` for local dev).
+
+Run backend tests (uses testcontainers — requires a running Docker daemon):
 
 ```bash
 cd backend
 python -m pytest -v
 ```
 
-Run frontend typecheck:
+Run frontend tests + typecheck (Node 18.18+ required for Next 15):
 
 ```bash
 cd frontend
+npm test
 npm run typecheck
 ```
 
-Validate Docker Compose:
+Validate Docker Compose configuration (requires the `cp` step above):
 
 ```bash
 docker compose --env-file .env.example config
@@ -39,13 +42,19 @@ docker compose --env-file .env.example config
 Start non-GPU infrastructure:
 
 ```bash
-docker compose --env-file .env up postgres redis qdrant minio backend frontend
+docker compose up postgres redis qdrant minio backend frontend
 ```
 
 Start with GPU model services:
 
 ```bash
-docker compose --profile gpu --env-file .env up
+docker compose --profile gpu up
+```
+
+After containers are up, log in at http://localhost:3000/login with the credentials you set in `INITIAL_USER_*`. To add more users, run:
+
+```bash
+docker compose run --rm backend python -m app.cli create-user <username>
 ```
 
 ## Secret Safety
