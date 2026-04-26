@@ -60,4 +60,10 @@ def test_settings_expose_minio_fields(monkeypatch) -> None:
     assert s.minio_access_key == "k"
     assert s.minio_secret_key == "s"
     assert s.minio_bucket == "kd-test"
+    assert s.minio_secure is False
     assert s.max_upload_bytes == 52_428_800
+
+
+def test_max_upload_bytes_overridable_by_env(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")
+    assert Settings().max_upload_bytes == 1024
