@@ -1,9 +1,10 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Pencil, Trash2, Upload } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { isAxiosError } from "axios";
 
+import { DropUpload } from "../../../components/DropUpload";
 import {
   type KnowledgeBase,
   type KnowledgeFile,
@@ -13,17 +14,7 @@ import {
   listFiles,
   listKnowledgeBases,
   updateKnowledgeBase,
-  uploadFile,
 } from "../../../lib/knowledge-bases";
-
-const FILE_ERROR_FALLBACKS: Record<string, string> = {
-  invalid_extension: "Only TXT, PDF, and CS files are supported",
-  invalid_content: "File contents do not match the file type",
-  file_too_large: "File exceeds the 50 MB limit",
-  duplicate_filename:
-    "A file with this name already exists. Delete it first to re-upload.",
-  storage_error: "Storage failed. Please try again.",
-};
 
 function detailMessage(err: unknown, fallbackMap: Record<string, string>): string {
   if (isAxiosError(err)) {
@@ -350,7 +341,7 @@ function KbRow({ kb, onDelete }: { kb: KnowledgeBase; onDelete: () => void }) {
       </div>
       {expanded ? (
         <div className="border-t border-border px-4 py-3 space-y-3">
-          <UploadCard kbId={kb.id} onUploaded={loadFiles} />
+          <DropUpload kbId={kb.id} onAllUploaded={loadFiles} />
           {loadingFiles ? (
             <div className="text-xs text-muted-foreground">Loading files…</div>
           ) : files && files.length > 0 ? (
@@ -383,88 +374,6 @@ function KbRow({ kb, onDelete }: { kb: KnowledgeBase; onDelete: () => void }) {
         </div>
       ) : null}
     </li>
-  );
-}
-
-function UploadCard({
-  kbId,
-  onUploaded,
-}: {
-  kbId: number;
-  onUploaded: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function onChange(e: ChangeEvent<HTMLInputElement>) {
-    setFile(e.target.files?.[0] ?? null);
-    setError(null);
-  }
-
-  async function handleUpload() {
-    if (!file) return;
-    setError(null);
-    setProgress(0);
-    try {
-      await uploadFile(kbId, file, setProgress);
-      setFile(null);
-      if (inputRef.current) inputRef.current.value = "";
-      onUploaded();
-    } catch (err) {
-      setError(detailMessage(err, FILE_ERROR_FALLBACKS));
-    } finally {
-      setProgress(null);
-    }
-  }
-
-  return (
-    <div className="rounded-md border border-dashed border-border bg-muted/40 p-3">
-      <div className="flex items-center gap-2">
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".txt,.pdf,.cs"
-          onChange={onChange}
-          className="flex-1 text-xs"
-        />
-        <button
-          type="button"
-          onClick={handleUpload}
-          disabled={!file || progress !== null}
-          className="flex items-center gap-1 rounded-md bg-foreground px-3 py-1.5 text-xs text-white disabled:opacity-50"
-        >
-          <Upload className="h-3.5 w-3.5" />
-          Upload
-        </button>
-      </div>
-      {file ? (
-        <div className="mt-2 text-xs text-muted-foreground">
-          Selected: {file.name} ({humanSize(file.size)})
-        </div>
-      ) : (
-        <div className="mt-2 text-xs text-muted-foreground">
-          TXT, PDF, or CS, max 50 MB. Indexing happens synchronously.
-        </div>
-      )}
-      {progress !== null ? (
-        <div className="mt-2">
-          <div className="h-1.5 w-full rounded-full bg-muted">
-            <div
-              className="h-1.5 rounded-full bg-foreground transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            Uploading… {progress}%
-          </div>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="mt-2 text-xs text-red-600">{error}</div>
-      ) : null}
-    </div>
   );
 }
 
