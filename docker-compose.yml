@@ -213,3 +213,15 @@ volumes:
   presenton_data:
   minio_data:
   hf_cache:
+
+# Override the auto-created "<project>_default" network with an explicit
+# name + pinned subnet. Pinning the CIDR avoids range collisions on hosts
+# running multiple compose stacks. All services inherit this automatically
+# (no per-service `networks:` line needed) because we override `default`.
+networks:
+  default:
+    name: knowledgedeck_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.39.0.0/16
