@@ -27,3 +27,13 @@ qdrant/
 redis/
 
 .DS_Store
+
+# Claude Code session/agent runtime state
+.claude/
+
+# Local design scratch — keep on disk, not in repo
+draft.md
+
+# Large external testData artifacts (kept locally only)
+testData/2024-TSMC-Sustainability-Report-highlights-c.pdf
+testData/README_Presenton.md
