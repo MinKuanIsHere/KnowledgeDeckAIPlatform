@@ -9,7 +9,7 @@ An internal AI platform for streaming chat, personal RAG knowledge bases with ci
 ### 🗂️ Knowledge Bases (KB)
 
 - Per-user, named collections of documents.
-- Upload supports **TXT, PDF, CS, MD, DOCX, PPTX** (50 MB cap each).
+- Upload supports **TXT, MD, PDF, DOCX, PPTX, and code formats CS / PY / HTML / CSS** (50 MB cap each).
 - Files are parsed → chunked → embedded → indexed with **hybrid (dense + BM25) retrieval** out of the box.
 - Soft-delete with `deleted_at`; vectors are cleaned from Qdrant on file delete.
 - UI: drag-and-drop multi-file + folder upload, sortable file list (by upload time / size / type).
@@ -33,6 +33,24 @@ An internal AI platform for streaming chat, personal RAG knowledge bases with ci
 
 - At-a-glance counts of KBs, files, chats, and decks.
 - Brief feature descriptions for each module.
+
+---
+
+## Feature Boundaries — "I only want X, what do I take?"
+
+The codebase is organized so each user-facing module is a self-contained subtree. Pick what you need:
+
+| You want… | Backend take | Frontend take | Notes |
+|---|---|---|---|
+| 🐳 **Just the Docker / infra stack** (services + glue, no app logic) | `docker-compose.yml`, `.env.example`, `backend/Dockerfile`, `frontend/Dockerfile` | — | Postgres + MinIO + Qdrant + Presenton + 3 vLLM containers; the app pieces below plug into this |
+| 🗂️ **KB ingest + RAG** (file upload → vector store, no chat UI) | `backend/app/shared/`, `backend/app/features/{rag,knowledge_bases}/`, `backend/app/db/` | `frontend/app/(protected)/knowledge-bases/`, `frontend/lib/{kb-store,knowledge-bases,api,auth-store}.ts`, `frontend/components/{DropUpload,AuthGuard,AppSidebar}.tsx` | The cleanest standalone feature; no upward deps on Chat or Slide |
+| 📚 **Just the RAG retrieval module** (as a library, against pre-existing data) | `backend/app/features/rag/` (services + admin reindex) + `backend/app/db/` (KnowledgeBase + KnowledgeFile models) | — | Treat `rag.retrieve_context(user_id, kb_ids, query)` as a black box |
+| 💬 **Chat** | KB + add `backend/app/features/chat/` | KB-frontend + `frontend/app/(protected)/page.tsx`, `frontend/lib/{chat-store,chat}.ts`, `components/ChatInput.tsx` | SSE streaming + multi-turn history + optional RAG |
+| 🎯 **Slide Maker** | KB + add `backend/app/features/slides/` | `frontend/app/(protected)/slides/`, `frontend/lib/{slide-store,slides}.ts`, plus the same `ChatInput.tsx` | Includes Presenton integration (`presenton_client.py`) |
+
+The `app/shared/` folder holds platform code (auth, health, deps, llm-info) that every feature needs.
+
+For full architecture detail see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -75,7 +93,99 @@ query → [rewriter (chat only)] → embed dense + sparse (parallel)
      → cross-encoder rerank → threshold filter → top-5 context
 ```
 
-The retrieval module ([`backend/app/services/rag.py`](backend/app/services/rag.py)) is a single function shared by chat and slide maker — same hybrid search, same reranker, same threshold. Differences between the two surfaces live in the LLM prompt and in *which* query string is fed into RAG.
+The retrieval module ([`backend/app/features/rag/services/rag.py`](backend/app/features/rag/services/rag.py)) is a single function shared by chat and slide maker — same hybrid search, same reranker, same threshold. Differences between the two surfaces live in the LLM prompt and in *which* query string is fed into RAG.
+
+---
+
+## RAG Strategy
+
+This is what actually happens when you tick **Use RAG** in chat or slide maker. Read this before tuning thresholds or debugging "why isn't this file cited?".
+
+### Pipeline
+
+```
+                ┌────────────────────────────────────────┐
+your question  ─┤  rewriter (chat-only, multi-turn)     │
+                │  resolves "and that one?" → standalone│
+                └──────────────────┬─────────────────────┘
+                                   │
+              ┌────────────────────┴────────────────────┐
+              ▼                                          ▼
+   ┌──────────────────────┐                ┌──────────────────────┐
+   │ embed dense          │                │ embed sparse (BM25)  │
+   │ bge-m3 (1024-d)      │                │ Qdrant/bm25          │
+   │ via vLLM /embeddings │                │ in-process           │
+   └──────────┬───────────┘                └──────────┬───────────┘
+              │                                       │
+              └───────────────────┬───────────────────┘
+                                  │
+                        ┌─────────▼────────────┐
+                        │ Qdrant Query API     │
+                        │ prefetch top-40 each │
+                        │ → RRF fusion top-20  │
+                        └─────────┬────────────┘
+                                  │
+                        ┌─────────▼────────────┐
+                        │ cross-encoder rerank │
+                        │ bge-reranker-v2-m3   │
+                        │ via vLLM /score      │
+                        └─────────┬────────────┘
+                                  │
+                        ┌─────────▼────────────┐
+                        │ threshold ≥ 0.10     │
+                        │ → top 5 chunks       │
+                        └─────────┬────────────┘
+                                  │
+                                  ▼
+                       Context: block + citations
+```
+
+### Will RAG always trigger?
+
+**RAG attempts to fire whenever `use_rag=true` is set on the request** (the "Use RAG" checkbox). Whether it returns useful chunks is a separate question — the threshold can filter everything out.
+
+**End-to-end conditions for an answer to actually be grounded** (and to show citations):
+
+1. ✅ `use_rag=true` on the request
+2. ✅ The selected KBs actually contain content related to your query
+3. ✅ Hybrid search returns ≥1 candidate (almost always succeeds if KBs have any data)
+4. ✅ At least one candidate's **rerank score ≥ `RAG_RERANK_MIN_SCORE`** (default `0.10`) — this is the strict gate
+
+**If step 4 fails, you still get an answer, just without citations.** The chat system prompt instructs the LLM to fall back to general knowledge when no `Context:` block is provided. So the model may still write something correct — but it's its own knowledge, not yours.
+
+### Known limitation: short / abbreviation queries
+
+Cross-encoder rerankers like `bge-reranker-v2-m3` are trained on natural-language queries. They underperform on:
+
+- **Abbreviations**: query `"k8s"` against documents about Kubernetes scores ~0.0005 (well below 0.10), even though hybrid search correctly surfaces `kubernetes_basics.txt` at the top.
+- **Single-token / single-acronym queries**: `"AWS"`, `"GPU"`, `"ML"` may hit the same wall.
+- **Bare technical terms**: `"primary color CSS variable"` vs a CSS file defining `--primary` — the rerank pair-scoring isn't strong enough.
+
+In these cases:
+- Hybrid search **does** find the right chunks (you can verify by checking `RAG_RERANK_MIN_SCORE=0.0` temporarily).
+- The reranker fails to recognize the relevance.
+- Threshold drops everything → no citations.
+
+The robust fix is **query rewriting**: have a small LLM call expand abbreviations and reformulate short queries into a fuller form (`"k8s"` → `"What is Kubernetes (k8s)?"`) before embedding. The rewriter is already implemented in `chat_service.rewrite_for_retrieval` but currently only runs on multi-turn followups. Extending it to first-turn rewrites (with a "expand abbreviations" instruction) is on the roadmap.
+
+### Tuning knobs
+
+All in `.env`:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `RAG_DENSE_TOP_K` | `20` | Candidates Qdrant returns to the reranker. Higher = more chances of finding the right chunk; slower rerank. |
+| `RAG_FINAL_TOP_K` | `5` | Chunks that survive into the prompt. Higher = more context; risk of dilution. |
+| `RAG_MIN_SCORE` | `0.30` | Dense cosine threshold (cheap pre-filter; relaxed because hybrid+rerank does the real work). |
+| `RAG_RERANK_MIN_SCORE` | `0.10` | Cross-encoder score required to keep a chunk. Lower = more permissive but more noise. **The most impactful knob for "no citations" symptoms.** |
+
+To diagnose a "no citation" case:
+1. Check the assistant reply — if it's still answering correctly, the LLM is using general knowledge.
+2. Try the same query with the full term spelled out (e.g., `"Kubernetes"` instead of `"k8s"`).
+3. If full-term works but abbreviation doesn't, that's the rerank-on-short-query limitation above.
+4. If neither works and the file is genuinely in the KB, lower `RAG_RERANK_MIN_SCORE` temporarily to confirm threshold is the gate, then file an issue (or push for the query-rewriter extension).
+
+For the full pipeline implementation see [docs/ARCHITECTURE.md § RAG](docs/ARCHITECTURE.md#rag--retrieval-pipeline).
 
 ---
 
@@ -103,7 +213,7 @@ The retrieval module ([`backend/app/services/rag.py`](backend/app/services/rag.p
 ### 1. Clone + bootstrap env
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/MinKuanIsHere/KnowledgeDeckAIPlatform.git
 cd KnowledgeDeckAIPlatform
 cp .env.example .env
 ```

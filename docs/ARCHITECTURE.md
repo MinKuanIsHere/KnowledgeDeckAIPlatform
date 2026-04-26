@@ -233,8 +233,11 @@ User uploads file.docx via POST /knowledge-bases/{kb_id}/files
 | Ext | Parser | Magic check | Page numbers | Notes |
 |---|---|---|---|---|
 | `txt` | `data.decode("utf-8")` | UTF-8 + null-byte | none | |
+| `md` | same as txt | UTF-8 + null-byte | none | Markdown source |
 | `cs` | same as txt | UTF-8 + null-byte | none | C# source code |
-| `md` | same as txt | UTF-8 + null-byte | none | |
+| `py` | same as txt | UTF-8 + null-byte | none | Python source code |
+| `html` | same as txt | UTF-8 + null-byte | none | Tags kept as-is — embedding handles them |
+| `css` | same as txt | UTF-8 + null-byte | none | |
 | `pdf` | `pypdf.PdfReader` | `%PDF` | per page | |
 | `docx` | `python-docx` paragraphs + tables | `PK\x03\x04` (ZIP) | none | Tables joined with `\| ` |
 | `pptx` | `python-pptx` per-slide shapes | `PK\x03\x04` (ZIP) | per slide | Speaker notes excluded |

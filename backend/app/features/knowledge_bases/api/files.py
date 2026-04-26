@@ -44,6 +44,9 @@ def _content_type_for(extension: str) -> str:
         "txt": "text/plain; charset=utf-8",
         "cs": "text/x-csharp; charset=utf-8",
         "md": "text/markdown; charset=utf-8",
+        "py": "text/x-python; charset=utf-8",
+        "html": "text/html; charset=utf-8",
+        "css": "text/css; charset=utf-8",
         "docx": (
             "application/vnd.openxmlformats-officedocument."
             "wordprocessingml.document"

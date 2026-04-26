@@ -8,11 +8,8 @@
 
 - 我希望repo中可以有明確docker,KB如何管理(如何處理檔案到vector strore), rag策略, chat用法, slide maker用法，因為這4個項目應該就是我們的核心項目，對於其他開發者而言他可能只想要取其中一個內容功能，我希望他們都可以有很好的被整理到repo中。
 
-Q1: A. 可直接刪（無爭議），同意。
-Q2: B. 需要你決定（4 個 markdown / 一堆 docs。保留 README.md + note-todo.md。可以刪除requirements.md、docs/superpowers/{specs,plans}/。
-Q3: 大選擇 — Backend reorg？路徑 2：重組 backend 為 features/ 結構。
-Q4:就是這兩份文件需要撰寫。
 
+- 我需要你將rag策略也寫到readme中，然後我現在有疑問對於rag策略，現在的策略下，是否每次都會觸及rag? 因為我提問`k8s`，然後也有在ui中勾選，發現都沒有成功顯示citation，我認為有可能是篩選過於嚴格，或是有其他error導致沒有rag嗎?我需要你基於事實告訴我現況。
 
 - KB 支援python, html, css等常用程式碼。
 

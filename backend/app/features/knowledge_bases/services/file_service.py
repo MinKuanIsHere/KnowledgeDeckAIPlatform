@@ -1,7 +1,10 @@
 import hashlib
 import io
 
-ALLOWED_EXTENSIONS = {"txt", "pdf", "cs", "md", "docx", "pptx"}
+ALLOWED_EXTENSIONS = {
+    "txt", "pdf", "cs", "md", "docx", "pptx",
+    "py", "html", "css",  # common code formats — treated as UTF-8 text
+}
 
 # Office Open XML (.docx, .pptx) and ZIP files all start with the PKZIP
 # Local File Header magic. We accept anything starting with PK\x03\x04 at
