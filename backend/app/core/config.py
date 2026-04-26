@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     initial_user_username: str = ""
     initial_user_password: str = ""
 
+    # Comma-separated list of allowed CORS origins (e.g.
+    # "http://localhost:3000,http://192.168.1.102:3000"). Empty = no CORS
+    # middleware attached. Used by the browser when the frontend host
+    # differs from the backend host (cross-origin requests).
+    cors_origins: str = ""
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
     llm_base_url: str = "http://knowledgedeck_vllm_chat:8000/v1"
     llm_api_key: str = "local-dev-key"
     llm_model: str = "google/gemma-4-E4B-it"
