@@ -191,9 +191,10 @@ function KbList({ activeIdParam }: { activeIdParam: string | null }) {
 
 function SlideList({ activeIdParam }: { activeIdParam: string | null }) {
   const router = useRouter();
-  const projects = useSlideStore((s) => s.projects);
+  const sessions = useSlideStore((s) => s.sessions);
   const loaded = useSlideStore((s) => s.loaded);
   const refresh = useSlideStore((s) => s.refresh);
+  const newSession = useSlideStore((s) => s.newSession);
   const remove = useSlideStore((s) => s.remove);
   const rename = useSlideStore((s) => s.rename);
   const activeId = activeIdParam ? Number(activeIdParam) : null;
@@ -204,14 +205,15 @@ function SlideList({ activeIdParam }: { activeIdParam: string | null }) {
 
   return (
     <SidebarItemList
-      label="Slide Projects"
-      items={projects}
+      label="Slide Decks"
+      items={sessions}
       loaded={loaded}
       activeId={activeId}
       onSelect={(id) => router.push(`/slides/${id}`)}
-      // Slide projects are created by submitting the form on /slides; the
-      // sidebar "+" jumps the user there.
-      onCreate={() => router.push("/slides")}
+      onCreate={async () => {
+        const s = await newSession();
+        router.push(`/slides/${s.id}`);
+      }}
       onDelete={async (id) => {
         await remove(id);
         if (id === activeId) router.push("/slides");
@@ -219,7 +221,7 @@ function SlideList({ activeIdParam }: { activeIdParam: string | null }) {
       onRename={async (id, title) => {
         await rename(id, title);
       }}
-      emptyLabel="No slide projects yet"
+      emptyLabel="Start a new deck"
     />
   );
 }

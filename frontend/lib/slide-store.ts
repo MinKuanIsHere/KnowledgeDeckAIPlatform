@@ -3,44 +3,64 @@
 import { create } from "zustand";
 
 import {
-  type SlideProject,
-  deleteSlideProject,
-  listSlideProjects,
-  updateSlideProject,
+  type SlideSession,
+  createSlideSession,
+  deleteSlideSession,
+  listSlideSessions,
+  updateSlideSession,
 } from "./slides";
 
 type SlideState = {
-  projects: SlideProject[];
+  sessions: SlideSession[];
   loaded: boolean;
   refresh: () => Promise<void>;
-  // No `create` action here — generation is owned by the slides page (it
-  // calls the LLM-backed /generate endpoint and adds to the store).
-  add: (p: SlideProject) => void;
+  newSession: () => Promise<SlideSession>;
   remove: (id: number) => Promise<void>;
   rename: (id: number, title: string) => Promise<void>;
+  /** Local-only patch (e.g., after a render call updates status/has_pptx). */
+  patch: (id: number, patch: Partial<SlideSession>) => void;
+  bumpUpdatedAt: (id: number) => void;
 };
 
 export const useSlideStore = create<SlideState>((set, get) => ({
-  projects: [],
+  sessions: [],
   loaded: false,
   refresh: async () => {
     try {
-      set({ projects: await listSlideProjects(), loaded: true });
+      set({ sessions: await listSlideSessions(), loaded: true });
     } catch {
       set({ loaded: true });
     }
   },
-  add: (p) => set({ projects: [p, ...get().projects] }),
+  newSession: async () => {
+    const s = await createSlideSession();
+    set({ sessions: [s, ...get().sessions] });
+    return s;
+  },
   remove: async (id) => {
-    await deleteSlideProject(id);
-    set({ projects: get().projects.filter((p) => p.id !== id) });
+    await deleteSlideSession(id);
+    set({ sessions: get().sessions.filter((s) => s.id !== id) });
   },
   rename: async (id, title) => {
-    const updated = await updateSlideProject(id, title);
+    const updated = await updateSlideSession(id, title);
     set({
-      projects: get().projects.map((p) =>
-        p.id === id ? { ...p, title: updated.title } : p,
+      sessions: get().sessions.map((s) =>
+        s.id === id ? { ...s, title: updated.title } : s,
       ),
     });
+  },
+  patch: (id, patch) => {
+    set({
+      sessions: get().sessions.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    });
+  },
+  bumpUpdatedAt: (id) => {
+    const now = new Date().toISOString();
+    const list = [...get().sessions];
+    const idx = list.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    const [target] = list.splice(idx, 1);
+    list.unshift({ ...target, updated_at: now });
+    set({ sessions: list });
   },
 }));

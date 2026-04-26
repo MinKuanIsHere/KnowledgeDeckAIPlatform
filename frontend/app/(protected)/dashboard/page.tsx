@@ -22,7 +22,7 @@ export default function DashboardPage() {
   const sessionsLoaded = useChatSessionsStore((s) => s.loaded);
   const refreshSessions = useChatSessionsStore((s) => s.refresh);
 
-  const projects = useSlideStore((s) => s.projects);
+  const slideSessions = useSlideStore((s) => s.sessions);
   const projectsLoaded = useSlideStore((s) => s.loaded);
   const refreshProjects = useSlideStore((s) => s.refresh);
 
@@ -71,8 +71,8 @@ export default function DashboardPage() {
           />
           <StatCard
             icon={Presentation}
-            label="Slide Projects"
-            value={allLoaded ? projects.length : "—"}
+            label="Slide Decks"
+            value={allLoaded ? slideSessions.length : "—"}
             href="/slides"
           />
         </div>
