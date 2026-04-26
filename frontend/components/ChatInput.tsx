@@ -12,10 +12,22 @@ type Props = {
 
 export function ChatInput({ knowledgeBases, disabled, onSend }: Props) {
   const [text, setText] = useState("");
-  const [useRag, setUseRag] = useState(false);
+  // Default to RAG enabled — most users want grounded answers and toggling
+  // off is one click. Empty `kb_ids` = no filter (all KBs) on the backend.
+  const [useRag, setUseRag] = useState(true);
   const [selectedKbIds, setSelectedKbIds] = useState<number[]>([]);
+  const [pickerInitialized, setPickerInitialized] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  // Once the KB list arrives, default to "everything checked" so the user
+  // sees the explicit selection (matches the spirit of "All KBs").
+  useEffect(() => {
+    if (pickerInitialized) return;
+    if (knowledgeBases.length === 0) return;
+    setSelectedKbIds(knowledgeBases.map((kb) => kb.id));
+    setPickerInitialized(true);
+  }, [knowledgeBases, pickerInitialized]);
 
   // Close the KB picker when clicking outside.
   useEffect(() => {
@@ -40,8 +52,11 @@ export function ChatInput({ knowledgeBases, disabled, onSend }: Props) {
     );
   }
 
+  const allSelected =
+    knowledgeBases.length > 0 &&
+    selectedKbIds.length === knowledgeBases.length;
   const kbLabel =
-    selectedKbIds.length === 0
+    selectedKbIds.length === 0 || allSelected
       ? "All KBs"
       : selectedKbIds.length === 1
         ? knowledgeBases.find((k) => k.id === selectedKbIds[0])?.name ?? "1 KB"
@@ -92,13 +107,24 @@ export function ChatInput({ knowledgeBases, disabled, onSend }: Props) {
                     </div>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedKbIds([])}
-                        className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted"
-                      >
-                        All KBs (clear selection)
-                      </button>
+                      <div className="flex gap-1 px-1 pb-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedKbIds(knowledgeBases.map((k) => k.id))
+                          }
+                          className="flex-1 rounded px-2 py-1 text-xs hover:bg-muted"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedKbIds([])}
+                          className="flex-1 rounded px-2 py-1 text-xs hover:bg-muted"
+                        >
+                          Clear
+                        </button>
+                      </div>
                       <div className="my-1 border-t border-border" />
                       {knowledgeBases.map((kb) => (
                         <label

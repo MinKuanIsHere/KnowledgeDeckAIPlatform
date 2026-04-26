@@ -94,7 +94,7 @@ export function AppSidebar() {
           }`}
         >
           <Presentation className="h-4 w-4" />
-          Slides
+          Slide Maker
         </Link>
       </nav>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, User } from "lucide-react";
+import { Bot, Check, Copy, User } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -248,9 +248,64 @@ function MessageBubble({
             </div>
           ) : null}
         </div>
-        <div className="px-1 text-[10px] text-muted-foreground">{ts}</div>
+        <div className="flex items-center gap-2 px-1 text-[10px] text-muted-foreground">
+          <span>{ts}</span>
+          {!isUser && !streaming && message.content ? (
+            <CopyButton text={message.content} />
+          ) : null}
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Copies the raw markdown text (not the rendered HTML) so the user can paste
+ * the content into another markdown surface and keep formatting intact.
+ */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Older browsers / non-secure contexts: fall back to textarea-select.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label="Copy markdown"
+      className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted hover:text-foreground"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3 w-3" /> Copied
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" /> Copy
+        </>
+      )}
+    </button>
   );
 }
 

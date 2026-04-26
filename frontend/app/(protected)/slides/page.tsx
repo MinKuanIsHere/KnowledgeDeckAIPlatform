@@ -129,7 +129,7 @@ export default function SlidesPage() {
     <section className="h-full overflow-auto px-6 py-6">
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Slides</h1>
+          <h1 className="text-xl font-semibold">Slide Maker</h1>
           <span className="text-xs text-muted-foreground">
             Mock outline — Presenton-rendered PPTX in a future release
           </span>
