@@ -482,8 +482,26 @@ async def render_session(
 
     # Marker-supplied params override request body defaults — the LLM had
     # the conversation context and chose them with the user.
-    template = marker_params.get("template") or body.template
+    requested_template = (marker_params.get("template") or body.template).strip()
     language = marker_params.get("language") or body.language
+
+    # Allow-list of templates Presenton actually ships in this image. Other
+    # values (including older docs' `classic`/`professional`) trigger
+    # "Template not found" 400. Custom-uploaded templates would arrive as
+    # `custom-{uuid}` — pass those through untouched.
+    _BUILTIN_TEMPLATES = {"general", "modern"}
+    if (
+        requested_template in _BUILTIN_TEMPLATES
+        or requested_template.startswith("custom-")
+    ):
+        template = requested_template
+    else:
+        logger.info(
+            "slide_render template_fallback session=%s requested=%s -> general",
+            session_id,
+            requested_template,
+        )
+        template = "general"
 
     s.status = SlideStatus.RENDERING
     s.updated_at = started
