@@ -818,7 +818,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.db.models import User
 
-_TOKEN_RE = re.compile(r"^u_(\d+)$")
+# Bounded to PostgreSQL BIGINT range (max 9_223_372_036_854_775_807, 19 digits)
+# and rejects leading zeros / id=0 so over-long values surface as 401, not 500.
+_TOKEN_RE = re.compile(r"^u_([1-9]\d{0,18})$")
 
 
 async def get_current_user(
