@@ -2,6 +2,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { ChatInput } from "../../components/ChatInput";
 import { useChatSessionsStore } from "../../lib/chat-store";
@@ -200,29 +202,69 @@ function MessageBubble({
   streaming?: boolean;
 }) {
   const isUser = message.role === "user";
+  const ts = formatTimestamp(message.created_at);
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-          isUser
-            ? "bg-foreground text-white"
-            : "border border-border bg-white text-foreground"
+        className={`flex max-w-[88%] flex-col gap-1 md:max-w-[78%] lg:max-w-[68%] ${
+          isUser ? "items-end" : "items-start"
         }`}
       >
-        {message.content}
-        {streaming ? <span className="ml-1 animate-pulse">▍</span> : null}
-        {message.citations && message.citations.length > 0 ? (
-          <div className="mt-2 border-t border-border/40 pt-2 text-xs text-muted-foreground">
-            Sources:{" "}
-            {message.citations.map((c, i) => (
-              <span key={c.file_id}>
-                {i > 0 ? ", " : ""}
-                {c.filename}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        <div
+          className={`rounded-lg px-3 py-2 text-sm ${
+            isUser
+              ? "whitespace-pre-wrap bg-foreground text-white"
+              : "border border-border bg-white text-foreground"
+          }`}
+        >
+          {isUser ? (
+            <>
+              {message.content}
+              {streaming ? <span className="ml-1 animate-pulse">▍</span> : null}
+            </>
+          ) : (
+            <div className="markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {message.content || (streaming ? "…" : "")}
+              </ReactMarkdown>
+              {streaming ? <span className="ml-1 animate-pulse">▍</span> : null}
+            </div>
+          )}
+          {message.citations && message.citations.length > 0 ? (
+            <div className="mt-2 border-t border-border/40 pt-2 text-xs text-muted-foreground">
+              Sources:{" "}
+              {message.citations.map((c, i) => (
+                <span key={c.file_id}>
+                  {i > 0 ? ", " : ""}
+                  {c.filename}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="px-1 text-[10px] text-muted-foreground">{ts}</div>
       </div>
     </div>
   );
+}
+
+/**
+ * "2:34 PM" if today, otherwise "Apr 26, 2:34 PM". English locale, no
+ * year (the chat history is recent enough that date alone is fine).
+ */
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (sameDay) return time;
+  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${date}, ${time}`;
 }
