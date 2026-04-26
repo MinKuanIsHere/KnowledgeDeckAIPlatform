@@ -6,10 +6,10 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "r
 
 import { uploadFile } from "../lib/knowledge-bases";
 
-const ACCEPTED = new Set(["txt", "pdf", "cs"]);
+const ACCEPTED = new Set(["txt", "pdf", "cs", "md", "docx", "pptx"]);
 
 const ERROR_FALLBACKS: Record<string, string> = {
-  invalid_extension: "Only TXT, PDF, and CS are accepted",
+  invalid_extension: "Only TXT, PDF, CS, MD, DOCX, and PPTX are accepted",
   invalid_content: "File contents do not match the file type",
   file_too_large: "File exceeds the 50 MB limit",
   duplicate_filename: "A file with this name already exists",
@@ -250,7 +250,7 @@ export function DropUpload({ kbId, onAllUploaded }: Props) {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".txt,.pdf,.cs"
+          accept=".txt,.pdf,.cs,.md,.docx,.pptx"
           onChange={onPickFiles}
           className="hidden"
         />

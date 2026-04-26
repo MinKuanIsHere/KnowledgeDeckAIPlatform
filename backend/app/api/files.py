@@ -42,6 +42,15 @@ def _content_type_for(extension: str) -> str:
         "pdf": "application/pdf",
         "txt": "text/plain; charset=utf-8",
         "cs": "text/x-csharp; charset=utf-8",
+        "md": "text/markdown; charset=utf-8",
+        "docx": (
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        "pptx": (
+            "application/vnd.openxmlformats-officedocument."
+            "presentationml.presentation"
+        ),
     }
     # Falls back to a binary safe default; defensive in case a new extension
     # is added to ALLOWED_EXTENSIONS without updating this map.

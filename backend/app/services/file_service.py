@@ -1,7 +1,13 @@
 import hashlib
 import io
 
-ALLOWED_EXTENSIONS = {"txt", "pdf", "cs"}
+ALLOWED_EXTENSIONS = {"txt", "pdf", "cs", "md", "docx", "pptx"}
+
+# Office Open XML (.docx, .pptx) and ZIP files all start with the PKZIP
+# Local File Header magic. We accept anything starting with PK\x03\x04 at
+# the validate_content stage and rely on the parser to fail loudly if the
+# zip turns out not to be the OOXML format the extension claims.
+_ZIP_MAGIC = b"PK\x03\x04"
 
 
 class ValidationError(Exception):
@@ -32,7 +38,14 @@ def validate_content(extension: str, head: bytes) -> None:
         if not head.startswith(b"%PDF"):
             raise ValidationError("invalid_content")
         return
-    # txt / cs share the text-likeness rule.
+    if extension in ("docx", "pptx"):
+        # OOXML containers are PKZIP-wrapped XML. The PK magic alone doesn't
+        # prove it's the right kind of OOXML — that's the parser's job to
+        # discover and surface as an ingest failure.
+        if not head.startswith(_ZIP_MAGIC):
+            raise ValidationError("invalid_content")
+        return
+    # txt / cs / md share the text-likeness rule.
     sample = head[:1024]
     if b"\x00" in sample:
         raise ValidationError("invalid_content")
