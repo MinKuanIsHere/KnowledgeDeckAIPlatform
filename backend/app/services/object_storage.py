@@ -38,14 +38,13 @@ class MinioClient:
 
     async def ensure_bucket(self) -> None:
         def _impl() -> None:
-            # Attempt-then-ignore is race-safe under concurrent worker startup,
-            # unlike check-then-act which would let a second worker fail with
-            # BucketAlreadyOwnedByYou after both passed bucket_exists().
-            try:
+            # Check-then-act: avoids `make_bucket` on an existing bucket. We
+            # accept the (theoretical) multi-worker TOCTOU race because the
+            # MVP runs a single uvicorn worker, and this is the only path
+            # MinIO doesn't reject when the container hostname contains an
+            # underscore (e.g. `knowledgedeck_minio`).
+            if not self._client.bucket_exists(self._bucket):
                 self._client.make_bucket(self._bucket)
-            except S3Error as e:
-                if e.code not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
-                    raise
 
         await asyncio.to_thread(_impl)
 

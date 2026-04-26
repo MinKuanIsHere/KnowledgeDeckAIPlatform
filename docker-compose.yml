@@ -93,6 +93,13 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    networks:
+      # MinIO server rejects requests where the Host header contains an
+      # underscore (DNS hostname rule). Clients must reach MinIO via this
+      # hyphenated alias, not the container name.
+      default:
+        aliases:
+          - knowledgedeck-minio
 
   vllm_chat:
     container_name: knowledgedeck_vllm_chat
