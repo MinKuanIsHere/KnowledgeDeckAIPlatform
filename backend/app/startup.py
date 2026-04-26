@@ -35,4 +35,8 @@ async def lifespan(app: FastAPI):
     async with factory() as session:
         await seed_initial_user(session)
         await session.commit()
+
+    from app.services.object_storage import get_minio_client
+    await get_minio_client().ensure_bucket()
+
     yield
