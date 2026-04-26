@@ -7,6 +7,7 @@ import {
   createSession,
   deleteSession,
   listSessions,
+  updateSession,
 } from "./chat";
 
 type ChatSessionsState = {
@@ -15,6 +16,7 @@ type ChatSessionsState = {
   refresh: () => Promise<void>;
   newChat: () => Promise<ChatSession>;
   remove: (id: number) => Promise<void>;
+  rename: (id: number, title: string) => Promise<ChatSession>;
   // Local-only update (e.g., after sending a message we already know the
   // server side has touched updated_at). Keeps the sidebar in sync without
   // an extra round-trip.
@@ -39,6 +41,15 @@ export const useChatSessionsStore = create<ChatSessionsState>((set, get) => ({
   remove: async (id) => {
     await deleteSession(id);
     set({ sessions: get().sessions.filter((s) => s.id !== id) });
+  },
+  rename: async (id, title) => {
+    const updated = await updateSession(id, title);
+    set({
+      sessions: get().sessions.map((s) =>
+        s.id === id ? { ...s, title: updated.title } : s,
+      ),
+    });
+    return updated;
   },
   bumpUpdatedAt: (id) => {
     const now = new Date().toISOString();

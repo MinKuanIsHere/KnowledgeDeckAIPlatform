@@ -1,17 +1,13 @@
 "use client";
 
 import { isAxiosError } from "axios";
-import { Download, FileText, Loader2, Trash2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { listKnowledgeBases, type KnowledgeBase } from "../../../lib/knowledge-bases";
-import {
-  type SlideProject,
-  deleteSlideProject,
-  downloadSlideProject,
-  generateSlides,
-  listSlideProjects,
-} from "../../../lib/slides";
+import { useKbStore } from "../../../lib/kb-store";
+import { useSlideStore } from "../../../lib/slide-store";
+import { generateSlides } from "../../../lib/slides";
 
 function detailMessage(err: unknown): string {
   if (isAxiosError(err)) {
@@ -21,53 +17,37 @@ function detailMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Failed";
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+export default function SlidesIndexPage() {
+  const router = useRouter();
 
-export default function SlidesPage() {
-  const [projects, setProjects] = useState<SlideProject[]>([]);
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [loading, setLoading] = useState(true);
+  const knowledgeBases = useKbStore((s) => s.kbs);
+  const kbsLoaded = useKbStore((s) => s.loaded);
+  const refreshKbs = useKbStore((s) => s.refresh);
+  const addProject = useSlideStore((s) => s.add);
 
-  // Form state
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [useRag, setUseRag] = useState(false);
+  const [useRag, setUseRag] = useState(true);
   const [selectedKbIds, setSelectedKbIds] = useState<number[]>([]);
+  const [pickerInitialized, setPickerInitialized] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    try {
-      setProjects(await listSlideProjects());
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    (async () => {
-      const [pList, kList] = await Promise.all([
-        listSlideProjects().catch(() => []),
-        listKnowledgeBases().catch(() => []),
-      ]);
-      setProjects(pList);
-      setKnowledgeBases(kList);
-      setLoading(false);
-    })();
-  }, []);
+    if (!kbsLoaded) refreshKbs();
+  }, [kbsLoaded, refreshKbs]);
 
-  // Close KB picker on outside click.
+  // Default to all KBs checked once the list arrives, matching ChatInput.
+  useEffect(() => {
+    if (pickerInitialized) return;
+    if (knowledgeBases.length === 0) return;
+    setSelectedKbIds(knowledgeBases.map((k) => k.id));
+    setPickerInitialized(true);
+  }, [knowledgeBases, pickerInitialized]);
+
   useEffect(() => {
     function onClick(e: MouseEvent) {
       if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
@@ -82,8 +62,11 @@ export default function SlidesPage() {
     );
   }
 
+  const allSelected =
+    knowledgeBases.length > 0 &&
+    selectedKbIds.length === knowledgeBases.length;
   const kbLabel =
-    selectedKbIds.length === 0
+    selectedKbIds.length === 0 || allSelected
       ? "All KBs"
       : selectedKbIds.length === 1
         ? knowledgeBases.find((k) => k.id === selectedKbIds[0])?.name ?? "1 KB"
@@ -95,33 +78,19 @@ export default function SlidesPage() {
     setError(null);
     setGenerating(true);
     try {
-      await generateSlides({
+      const project = await generateSlides({
         prompt: prompt.trim(),
         title: title.trim() || undefined,
         use_rag: useRag,
         kb_ids: selectedKbIds.length === 0 ? null : selectedKbIds,
       });
-      setPrompt("");
-      setTitle("");
-      await refresh();
+      addProject(project);
+      // Land the user on the detail page so they can read the outline / download.
+      router.push(`/slides/${project.id}`);
     } catch (err) {
       setError(detailMessage(err));
     } finally {
       setGenerating(false);
-    }
-  }
-
-  async function handleDelete(p: SlideProject) {
-    if (!window.confirm(`Delete "${p.title}"?`)) return;
-    await deleteSlideProject(p.id);
-    setProjects((cur) => cur.filter((x) => x.id !== p.id));
-  }
-
-  async function handleDownload(p: SlideProject) {
-    try {
-      await downloadSlideProject(p.id, p.title);
-    } catch (err) {
-      setError(detailMessage(err));
     }
   }
 
@@ -195,13 +164,24 @@ export default function SlidesPage() {
                       </div>
                     ) : (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedKbIds([])}
-                          className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted"
-                        >
-                          All KBs (clear selection)
-                        </button>
+                        <div className="flex gap-1 px-1 pb-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedKbIds(knowledgeBases.map((k) => k.id))
+                            }
+                            className="flex-1 rounded px-2 py-1 text-xs hover:bg-muted"
+                          >
+                            Select all
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedKbIds([])}
+                            className="flex-1 rounded px-2 py-1 text-xs hover:bg-muted"
+                          >
+                            Clear
+                          </button>
+                        </div>
                         <div className="my-1 border-t border-border" />
                         {knowledgeBases.map((kb) => (
                           <label
@@ -242,58 +222,10 @@ export default function SlidesPage() {
           ) : null}
         </form>
 
-        <h2 className="pt-2 text-sm font-medium text-muted-foreground">
-          Past projects
-        </h2>
-
-        {loading ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : projects.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-white p-10 text-center text-sm text-muted-foreground">
-            No projects yet. Generate one above.
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {projects.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-start gap-3 rounded-lg border border-border bg-white px-4 py-3"
-              >
-                <FileText className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium" title={p.title}>
-                    {p.title}
-                  </div>
-                  <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                    {p.prompt}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span>{formatTime(p.created_at)}</span>
-                    {p.use_rag ? (
-                      <span className="rounded bg-muted px-1.5 py-0.5">RAG</span>
-                    ) : null}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDownload(p)}
-                  aria-label={`Download ${p.title}`}
-                  className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
-                >
-                  <Download className="h-3.5 w-3.5" /> Download
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(p)}
-                  aria-label={`Delete ${p.title}`}
-                  className="rounded-md border border-border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="rounded-md border border-dashed border-border bg-white p-4 text-xs text-muted-foreground">
+          Past projects appear in the sidebar. Click one to see its outline
+          and download.
+        </div>
       </div>
     </section>
   );

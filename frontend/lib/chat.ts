@@ -37,6 +37,11 @@ export async function getSession(id: number): Promise<SessionDetail> {
   return res.data;
 }
 
+export async function updateSession(id: number, title: string): Promise<ChatSession> {
+  const res = await api.patch<ChatSession>(`/chat/sessions/${id}`, { title });
+  return res.data;
+}
+
 export async function deleteSession(id: number): Promise<void> {
   await api.delete(`/chat/sessions/${id}`);
 }

@@ -1,60 +1,37 @@
 "use client";
 
-import { LogOut, MessageSquare, MessageSquarePlus, Plus, Presentation, Search, Trash2 } from "lucide-react";
+import { LayoutDashboard, LogOut, MessageSquare, Presentation, Search } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
+import { SidebarItemList } from "./SidebarItemList";
 import { useAuthStore } from "../lib/auth-store";
 import { useChatSessionsStore } from "../lib/chat-store";
+import { useKbStore } from "../lib/kb-store";
+import { useSlideStore } from "../lib/slide-store";
 
 /**
- * Single sidebar shared across all (protected) pages. Lives in the layout so
- * navigating between Chat and Knowledge Bases never re-mounts it — the
- * sessions list keeps its scroll/state, and the URL tells us which session
- * is active (?sid=N) when the user is on the chat page.
+ * Single sidebar shared across all (protected) pages. Top nav is fixed; the
+ * lower list swaps based on the active section (Knowledge Bases / Chat /
+ * Slide Maker). Dashboard hides the lower list entirely.
  */
 export function AppSidebar() {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/";
   const params = useSearchParams();
+  const routeParams = useParams<{ id?: string }>();
   const user = useAuthStore((s) => s.user);
   const clearSession = useAuthStore((s) => s.clearSession);
 
-  const sessions = useChatSessionsStore((s) => s.sessions);
-  const loaded = useChatSessionsStore((s) => s.loaded);
-  const refresh = useChatSessionsStore((s) => s.refresh);
-  const newChat = useChatSessionsStore((s) => s.newChat);
-  const remove = useChatSessionsStore((s) => s.remove);
-
-  const activeSidParam = params.get("sid");
-  const activeSid = activeSidParam ? Number(activeSidParam) : null;
-  const onChatPage = pathname === "/";
-  const onKbPage = pathname?.startsWith("/knowledge-bases") ?? false;
-  const onSlidesPage = pathname?.startsWith("/slides") ?? false;
-
-  useEffect(() => {
-    if (!loaded) refresh();
-  }, [loaded, refresh]);
+  const onDashboard = pathname === "/dashboard";
+  const onChat = pathname === "/";
+  const onKb = pathname.startsWith("/knowledge-bases");
+  const onSlides = pathname.startsWith("/slides");
 
   function handleLogout() {
     clearSession();
     router.push("/login");
-  }
-
-  async function handleNewChat() {
-    const s = await newChat();
-    router.push(`/?sid=${s.id}`);
-  }
-
-  function handleSelect(sid: number) {
-    router.push(`/?sid=${sid}`);
-  }
-
-  async function handleDelete(sid: number, ev: React.MouseEvent) {
-    ev.stopPropagation();
-    await remove(sid);
-    if (sid === activeSid) router.push("/");
   }
 
   return (
@@ -63,97 +40,28 @@ export function AppSidebar() {
         KnowledgeDeck
       </div>
       <nav className="space-y-1 px-2 py-3 text-sm">
-        <Link
-          href="/"
-          className={`flex items-center gap-2 rounded-md px-3 py-2 ${
-            onChatPage
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          }`}
-        >
-          <MessageSquare className="h-4 w-4" />
-          Chat
-        </Link>
-        <Link
-          href="/knowledge-bases"
-          className={`flex items-center gap-2 rounded-md px-3 py-2 ${
-            onKbPage
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          }`}
-        >
-          <Search className="h-4 w-4" />
+        <NavLink href="/dashboard" active={onDashboard} icon={LayoutDashboard}>
+          Dashboard
+        </NavLink>
+        <NavLink href="/knowledge-bases" active={onKb} icon={Search}>
           Knowledge Bases
-        </Link>
-        <Link
-          href="/slides"
-          className={`flex items-center gap-2 rounded-md px-3 py-2 ${
-            onSlidesPage
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          }`}
-        >
-          <Presentation className="h-4 w-4" />
+        </NavLink>
+        <NavLink href="/" active={onChat} icon={MessageSquare}>
+          Chat
+        </NavLink>
+        <NavLink href="/slides" active={onSlides} icon={Presentation}>
           Slide Maker
-        </Link>
+        </NavLink>
       </nav>
 
-      <div className="flex items-center justify-between border-t border-border px-3 pt-3 text-xs text-muted-foreground">
-        <span>Chats</span>
-        <button
-          type="button"
-          onClick={handleNewChat}
-          aria-label="New chat"
-          className="rounded p-1 hover:bg-muted hover:text-foreground"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="flex-1 overflow-auto px-2 py-2">
-        {sessions.length === 0 ? (
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <MessageSquarePlus className="h-4 w-4" />
-            Start a new chat
-          </button>
-        ) : (
-          <ul className="space-y-1">
-            {sessions.map((s) => {
-              const isActive = onChatPage && s.id === activeSid;
-              return (
-                <li
-                  key={s.id}
-                  className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
-                    isActive
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(s.id)}
-                    className="flex-1 truncate text-left"
-                    title={s.title}
-                  >
-                    {s.title}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(ev) => handleDelete(s.id, ev)}
-                    aria-label={`Delete ${s.title}`}
-                    className="ml-1 hidden rounded p-1 hover:text-red-600 group-hover:block"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      {onChat ? (
+        <ChatList activeSidParam={params.get("sid")} />
+      ) : onKb ? (
+        <KbList activeIdParam={routeParams?.id ?? null} />
+      ) : onSlides ? (
+        <SlideList activeIdParam={routeParams?.id ?? null} />
+      ) : null /* Dashboard: no lower list per Q1=A. */}
+
       <div className="border-t border-border px-3 py-3 text-xs text-muted-foreground">
         <div className="mb-2 truncate" title={user?.username}>
           {user?.username ?? ""}
@@ -168,5 +76,150 @@ export function AppSidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+function NavLink({
+  href,
+  active,
+  icon: Icon,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  icon: typeof MessageSquare;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-2 rounded-md px-3 py-2 ${
+        active
+          ? "bg-muted text-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+      {children}
+    </Link>
+  );
+}
+
+// --- Lower-list bindings: each variant subscribes to its own Zustand store ---
+
+function ChatList({ activeSidParam }: { activeSidParam: string | null }) {
+  const router = useRouter();
+  const sessions = useChatSessionsStore((s) => s.sessions);
+  const loaded = useChatSessionsStore((s) => s.loaded);
+  const refresh = useChatSessionsStore((s) => s.refresh);
+  const newChat = useChatSessionsStore((s) => s.newChat);
+  const remove = useChatSessionsStore((s) => s.remove);
+  const rename = useChatSessionsStore((s) => s.rename);
+  const activeId = activeSidParam ? Number(activeSidParam) : null;
+
+  useEffect(() => {
+    if (!loaded) refresh();
+  }, [loaded, refresh]);
+
+  return (
+    <SidebarItemList
+      label="Chats"
+      items={sessions}
+      loaded={loaded}
+      activeId={activeId}
+      onSelect={(id) => router.push(`/?sid=${id}`)}
+      onCreate={async () => {
+        const s = await newChat();
+        router.push(`/?sid=${s.id}`);
+      }}
+      onDelete={async (id) => {
+        await remove(id);
+        if (id === activeId) router.push("/");
+      }}
+      onRename={async (id, title) => {
+        await rename(id, title);
+      }}
+      emptyLabel="Start a new chat"
+    />
+  );
+}
+
+function KbList({ activeIdParam }: { activeIdParam: string | null }) {
+  const router = useRouter();
+  const kbs = useKbStore((s) => s.kbs);
+  const loaded = useKbStore((s) => s.loaded);
+  const refresh = useKbStore((s) => s.refresh);
+  const create = useKbStore((s) => s.create);
+  const remove = useKbStore((s) => s.remove);
+  const rename = useKbStore((s) => s.rename);
+  const activeId = activeIdParam ? Number(activeIdParam) : null;
+
+  useEffect(() => {
+    if (!loaded) refresh();
+  }, [loaded, refresh]);
+
+  return (
+    <SidebarItemList
+      label="Knowledge Bases"
+      items={kbs.map((kb) => ({ id: kb.id, title: kb.name }))}
+      loaded={loaded}
+      activeId={activeId}
+      onSelect={(id) => router.push(`/knowledge-bases/${id}`)}
+      onCreate={async () => {
+        const name = window.prompt("New knowledge base name");
+        if (!name?.trim()) return;
+        try {
+          const created = await create(name.trim());
+          router.push(`/knowledge-bases/${created.id}`);
+        } catch (err) {
+          window.alert(
+            err instanceof Error ? err.message : "Failed to create KB",
+          );
+        }
+      }}
+      onDelete={async (id) => {
+        await remove(id);
+        if (id === activeId) router.push("/knowledge-bases");
+      }}
+      onRename={async (id, name) => {
+        await rename(id, name);
+      }}
+      emptyLabel="No knowledge bases yet"
+    />
+  );
+}
+
+function SlideList({ activeIdParam }: { activeIdParam: string | null }) {
+  const router = useRouter();
+  const projects = useSlideStore((s) => s.projects);
+  const loaded = useSlideStore((s) => s.loaded);
+  const refresh = useSlideStore((s) => s.refresh);
+  const remove = useSlideStore((s) => s.remove);
+  const rename = useSlideStore((s) => s.rename);
+  const activeId = activeIdParam ? Number(activeIdParam) : null;
+
+  useEffect(() => {
+    if (!loaded) refresh();
+  }, [loaded, refresh]);
+
+  return (
+    <SidebarItemList
+      label="Slide Projects"
+      items={projects}
+      loaded={loaded}
+      activeId={activeId}
+      onSelect={(id) => router.push(`/slides/${id}`)}
+      // Slide projects are created by submitting the form on /slides; the
+      // sidebar "+" jumps the user there.
+      onCreate={() => router.push("/slides")}
+      onDelete={async (id) => {
+        await remove(id);
+        if (id === activeId) router.push("/slides");
+      }}
+      onRename={async (id, title) => {
+        await rename(id, title);
+      }}
+      emptyLabel="No slide projects yet"
+    />
   );
 }

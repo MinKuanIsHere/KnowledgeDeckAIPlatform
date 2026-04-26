@@ -12,6 +12,8 @@ export type SlideProject = {
   created_at: string;
 };
 
+export type SlideProjectDetail = SlideProject & { outline: string };
+
 export type GenerateRequest = {
   prompt: string;
   title?: string;
@@ -31,6 +33,19 @@ export async function generateSlides(req: GenerateRequest): Promise<SlideProject
 
 export async function listSlideProjects(): Promise<SlideProject[]> {
   const res = await api.get<SlideProject[]>("/slides/projects");
+  return res.data;
+}
+
+export async function getSlideProject(id: number): Promise<SlideProjectDetail> {
+  const res = await api.get<SlideProjectDetail>(`/slides/projects/${id}`);
+  return res.data;
+}
+
+export async function updateSlideProject(
+  id: number,
+  title: string,
+): Promise<SlideProject> {
+  const res = await api.patch<SlideProject>(`/slides/projects/${id}`, { title });
   return res.data;
 }
 

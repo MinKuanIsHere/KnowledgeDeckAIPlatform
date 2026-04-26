@@ -32,6 +32,10 @@ class SessionCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
 
 
+class SessionUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
 class SessionOut(BaseModel):
     id: int
     title: str
@@ -138,6 +142,22 @@ async def get_session(
         updated_at=s.updated_at.isoformat(),
         messages=[_message_out(m) for m in s.messages],
     )
+
+
+@router.patch("/sessions/{session_id}", response_model=SessionOut)
+async def update_session(
+    session_id: int,
+    body: SessionUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> SessionOut:
+    s = await _load_owned_session(
+        session, owner_user_id=user.id, session_id=session_id
+    )
+    s.title = body.title
+    await session.commit()
+    await session.refresh(s)
+    return _session_out(s)
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

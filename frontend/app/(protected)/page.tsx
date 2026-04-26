@@ -14,7 +14,7 @@ import {
   getSession,
   streamChat,
 } from "../../lib/chat";
-import { listKnowledgeBases, type KnowledgeBase } from "../../lib/knowledge-bases";
+import { useKbStore } from "../../lib/kb-store";
 
 export default function ChatPage() {
   const router = useRouter();
@@ -30,7 +30,10 @@ export default function ChatPage() {
   const activeId = sidParam ? Number(sidParam) : null;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+
+  const knowledgeBases = useKbStore((s) => s.kbs);
+  const kbsLoaded = useKbStore((s) => s.loaded);
+  const refreshKbs = useKbStore((s) => s.refresh);
 
   const [streamingText, setStreamingText] = useState("");
   const [streamingCitations, setStreamingCitations] = useState<Citation[] | null>(null);
@@ -39,13 +42,11 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Load KBs once for the input picker; sessions list is owned by the
-  // sidebar's Zustand store.
+  // KBs are owned by useKbStore (the sidebar pre-loads on its routes too).
+  // Hydrate here in case the user lands directly on the chat page first.
   useEffect(() => {
-    listKnowledgeBases()
-      .then(setKnowledgeBases)
-      .catch(() => setKnowledgeBases([]));
-  }, []);
+    if (!kbsLoaded) refreshKbs();
+  }, [kbsLoaded, refreshKbs]);
 
   // If the URL has no ?sid and the sidebar has loaded sessions, default to
   // the most-recently-updated one to avoid an empty landing state.

@@ -25,6 +25,10 @@ class GenerateRequest(BaseModel):
     kb_ids: list[int] | None = None
 
 
+class ProjectUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
 class SlideProjectOut(BaseModel):
     id: int
     title: str
@@ -32,6 +36,10 @@ class SlideProjectOut(BaseModel):
     use_rag: bool
     kb_ids: list[int] | None
     created_at: str
+
+
+class SlideProjectDetail(SlideProjectOut):
+    outline: str
 
 
 def _project_out(p: SlideProject) -> SlideProjectOut:
@@ -107,6 +115,26 @@ async def list_projects(
     return [_project_out(p) for p in rows.all()]
 
 
+@router.get("/projects/{project_id}", response_model=SlideProjectDetail)
+async def get_project(
+    project_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> SlideProjectDetail:
+    p = await _load_owned_project(
+        session, owner_user_id=user.id, project_id=project_id
+    )
+    return SlideProjectDetail(
+        id=p.id,
+        title=p.title,
+        prompt=p.prompt,
+        use_rag=p.use_rag,
+        kb_ids=p.kb_ids,
+        created_at=p.created_at.isoformat(),
+        outline=p.outline,
+    )
+
+
 @router.get("/projects/{project_id}/download")
 async def download_project(
     project_id: int,
@@ -125,6 +153,22 @@ async def download_project(
         "Content-Disposition": f'attachment; filename="{safe_title}.txt"',
     }
     return StreamingResponse(BytesIO(body), media_type="text/plain", headers=headers)
+
+
+@router.patch("/projects/{project_id}", response_model=SlideProjectOut)
+async def update_project(
+    project_id: int,
+    body: ProjectUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> SlideProjectOut:
+    project = await _load_owned_project(
+        session, owner_user_id=user.id, project_id=project_id
+    )
+    project.title = body.title
+    await session.commit()
+    await session.refresh(project)
+    return _project_out(project)
 
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
