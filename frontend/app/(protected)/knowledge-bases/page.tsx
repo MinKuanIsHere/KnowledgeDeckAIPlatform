@@ -256,70 +256,70 @@ function KbRow({ kb, onDelete }: { kb: KnowledgeBase; onDelete: () => void }) {
 
   return (
     <li className="rounded-lg border border-border bg-white">
-      <div className="flex items-center justify-between px-4 py-3">
-        <button
-          type="button"
-          onClick={toggle}
-          className="flex flex-1 items-center gap-2 text-left"
-          aria-expanded={expanded}
-          disabled={editing}
-        >
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
-          <div className="min-w-0 flex-1">
-            {editing ? (
-              <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                <input
-                  value={draftName}
-                  onChange={(e) => setDraftName(e.target.value)}
-                  maxLength={100}
-                  autoFocus
-                  className="w-full rounded-md border border-border bg-white px-2 py-1 text-sm"
-                />
-                <textarea
-                  value={draftDesc}
-                  onChange={(e) => setDraftDesc(e.target.value)}
-                  maxLength={500}
-                  rows={2}
-                  placeholder="Description (optional)"
-                  className="w-full rounded-md border border-border bg-white px-2 py-1 text-xs"
-                />
-                {editError ? (
-                  <div className="text-xs text-red-600">{editError}</div>
-                ) : null}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    className="rounded-md border border-border bg-white px-2 py-1 text-xs hover:bg-muted"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={saveEdit}
-                    disabled={saving || !draftName.trim()}
-                    className="rounded-md bg-foreground px-2 py-1 text-xs text-white disabled:opacity-50"
-                  >
-                    {saving ? "..." : "Save"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="text-sm font-medium">{name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {fileCount} {fileCount === 1 ? "file" : "files"}
-                  {description ? ` · ${description}` : ""}
-                </div>
-              </>
-            )}
+      {editing ? (
+        // Edit layout. Form is the entire row — no outer button so the
+        // Save/Cancel buttons aren't nested (HTML rejects button-in-button
+        // and Next.js surfaces it as a hydration error).
+        <div className="px-4 py-3">
+          <div className="space-y-2">
+            <input
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              maxLength={100}
+              autoFocus
+              className="w-full rounded-md border border-border bg-white px-2 py-1 text-sm"
+            />
+            <textarea
+              value={draftDesc}
+              onChange={(e) => setDraftDesc(e.target.value)}
+              maxLength={500}
+              rows={2}
+              placeholder="Description (optional)"
+              className="w-full rounded-md border border-border bg-white px-2 py-1 text-xs"
+            />
+            {editError ? (
+              <div className="text-xs text-red-600">{editError}</div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="rounded-md border border-border bg-white px-2 py-1 text-xs hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveEdit}
+                disabled={saving || !draftName.trim()}
+                className="rounded-md bg-foreground px-2 py-1 text-xs text-white disabled:opacity-50"
+              >
+                {saving ? "..." : "Save"}
+              </button>
+            </div>
           </div>
-        </button>
-        {!editing ? (
+        </div>
+      ) : (
+        <div className="flex items-center justify-between px-4 py-3">
+          <button
+            type="button"
+            onClick={toggle}
+            className="flex flex-1 items-center gap-2 text-left"
+            aria-expanded={expanded}
+          >
+            {expanded ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">{name}</div>
+              <div className="text-xs text-muted-foreground">
+                {fileCount} {fileCount === 1 ? "file" : "files"}
+                {description ? ` · ${description}` : ""}
+              </div>
+            </div>
+          </button>
           <button
             type="button"
             onClick={startEdit}
@@ -328,17 +328,16 @@ function KbRow({ kb, onDelete }: { kb: KnowledgeBase; onDelete: () => void }) {
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={`Delete ${name}`}
-          disabled={editing}
-          className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete ${name}`}
+            className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       {expanded ? (
         <div className="border-t border-border px-4 py-3 space-y-3">
           <DropUpload kbId={kb.id} onAllUploaded={loadFiles} />

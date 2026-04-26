@@ -49,7 +49,7 @@ export function ChatInput({ knowledgeBases, disabled, onSend }: Props) {
 
   return (
     <div className="border-t border-border bg-white p-3">
-      <div className="rounded-lg border border-border bg-white px-3 py-2">
+      <div className="mx-auto max-w-5xl rounded-lg border border-border bg-white px-3 py-2">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
