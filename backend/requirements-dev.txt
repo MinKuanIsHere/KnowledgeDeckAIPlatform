@@ -1,0 +1,8 @@
+# Dev-only dependencies (testing). Not required for production runtime.
+# Install in Docker via `pip install -r requirements-dev.txt` (in addition
+# to requirements.txt) so `docker compose exec backend pytest` works.
+
+-r requirements.txt
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+testcontainers[minio,postgresql]>=4.8.0

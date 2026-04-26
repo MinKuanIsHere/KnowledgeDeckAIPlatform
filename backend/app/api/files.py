@@ -17,7 +17,7 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.db.base import get_db
 from app.db.models import FileStatus, KnowledgeBase, KnowledgeFile, User
-from app.services import file_service
+from app.services import file_service, ingestion
 from app.services.object_storage import get_minio_client
 
 router = APIRouter(prefix="/knowledge-bases", tags=["files"])
@@ -145,6 +145,12 @@ async def upload_file(
     await session.commit()
     await session.refresh(row)
 
+    # Synchronous ingestion: parse → chunk → embed → Qdrant. On failure the
+    # row is marked status=failed (with status_error) but the upload itself
+    # still returns 201 — the user sees the failure in the file list.
+    await ingestion.ingest_file(session=session, file_row=row, data=data)
+    await session.refresh(row)
+
     return _file_out(row)
 
 
@@ -185,3 +191,5 @@ async def delete_file(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="file_not_found")
     row.deleted_at = datetime.now(timezone.utc)
     await session.commit()
+    # Best-effort Qdrant cleanup; failures are logged and ignored.
+    await ingestion.cleanup_file_vectors(file_id=file_id)

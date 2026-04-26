@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://knowledgedeck_vllm_embedding:8001/v1"
     embedding_api_key: str = "local-dev-key"
     embedding_model: str = "BAAI/bge-m3"
+    embedding_dim: int = 1024  # BAAI/bge-m3 outputs 1024-dim vectors
+
+    qdrant_url: str = "http://knowledgedeck_qdrant:6333"
+    qdrant_collection: str = "knowledgedeck"
+
+    # Chunking knobs (character-based, simple). Bigger overlap reduces
+    # mid-sentence cuts at the cost of more vectors per file.
+    chunk_chars: int = 1200
+    chunk_overlap: int = 150
 
     gpu_device: str = "0"
     vllm_chat_gpu_memory_utilization: float = 0.70

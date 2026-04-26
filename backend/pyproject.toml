@@ -3,25 +3,10 @@ name = "knowledgedeck-backend"
 version = "0.1.0"
 description = "FastAPI backend for KnowledgeDeck AI Platform"
 requires-python = ">=3.11"
-dependencies = [
-    "alembic>=1.13.0",
-    "fastapi>=0.115.0",
-    "httpx>=0.27.0",
-    "minio>=7.2.0",
-    "psycopg[binary]>=3.2.0",
-    "pydantic-settings>=2.4.0",
-    "python-multipart>=0.0.20",
-    "sqlalchemy>=2.0.32",
-    "typer>=0.12.0",
-    "uvicorn[standard]>=0.30.0",
-]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "testcontainers[minio,postgresql]>=4.8.0",
-]
+# Runtime + dev dependencies live in requirements.txt and requirements-dev.txt
+# (consumed by the Dockerfile). pyproject.toml only carries metadata + tool
+# config from this point forward.
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
