@@ -10,15 +10,8 @@ export type SlideSession = {
   title: string;
   status: SlideStatus;
   has_pptx: boolean;
-  custom_template_id: string | null;
-  custom_template_name: string | null;
   created_at: string;
   updated_at: string;
-};
-
-export type AvailableTemplate = {
-  id: string;
-  name: string;
 };
 
 export type SlideMessageCitation = { file_id: number; filename: string };
@@ -70,49 +63,6 @@ export async function updateSlideSession(
 
 export async function deleteSlideSession(id: number): Promise<void> {
   await api.delete(`/slide-sessions/${id}`);
-}
-
-// --- Visual templates (Presenton-authored) ---
-
-export async function listAvailableTemplates(): Promise<AvailableTemplate[]> {
-  const res = await api.get<AvailableTemplate[]>(
-    "/slide-sessions/available-templates",
-  );
-  return res.data;
-}
-
-export async function setSessionTemplate(
-  sessionId: number,
-  template: AvailableTemplate | null,
-): Promise<SlideSession> {
-  const res = await api.patch<SlideSession>(
-    `/slide-sessions/${sessionId}/template`,
-    {
-      custom_template_id: template?.id ?? null,
-      custom_template_name: template?.name ?? null,
-    },
-  );
-  return res.data;
-}
-
-/**
- * Best-effort URL for Presenton's `/custom-template` page. We reuse the
- * host portion of NEXT_PUBLIC_API_BASE_URL and swap the port to 5001
- * (compose maps presenton:80 -> host:5001). If parsing fails we fall back
- * to a relative-ish guess so the link is at least clickable.
- */
-export function presentonTemplateBuilderUrl(): string {
-  try {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
-    const u = new URL(base);
-    u.port = "5001";
-    u.pathname = "/custom-template";
-    u.search = "";
-    u.hash = "";
-    return u.toString();
-  } catch {
-    return "/custom-template";
-  }
 }
 
 // --- Streaming + Render + Download ---

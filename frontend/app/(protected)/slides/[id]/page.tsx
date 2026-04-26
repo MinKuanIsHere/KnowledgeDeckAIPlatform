@@ -8,15 +8,11 @@ import {
   CheckCircle2,
   Copy,
   Download,
-  ExternalLink,
   Loader2,
-  Palette,
   Pencil,
-  RefreshCw,
   Sparkles,
   Trash2,
   User,
-  X,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -27,16 +23,12 @@ import { ChatInput } from "../../../../components/ChatInput";
 import { useKbStore } from "../../../../lib/kb-store";
 import { useSlideStore } from "../../../../lib/slide-store";
 import {
-  type AvailableTemplate,
   type SlideMessage,
   type SlideMessageCitation,
   downloadSlideSession,
   getSlideSession,
-  listAvailableTemplates,
   parseRenderMarker,
-  presentonTemplateBuilderUrl,
   renderSlideSession,
-  setSessionTemplate,
   streamSlideSession,
   stripOutlineReady,
 } from "../../../../lib/slides";
@@ -86,9 +78,6 @@ export default function SlideSessionPage() {
   const session = sessions.find((s) => s.id === sessionId);
 
   const [messages, setMessages] = useState<SlideMessage[]>([]);
-  const [availableTemplates, setAvailableTemplates] = useState<AvailableTemplate[]>([]);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [templateError, setTemplateError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [streamingCitations, setStreamingCitations] = useState<
     SlideMessageCitation[] | null
@@ -127,7 +116,6 @@ export default function SlideSessionPage() {
     if (!Number.isFinite(sessionId)) return;
     let cancelled = false;
     setRenderState(null);
-    setTemplateError(null);
     (async () => {
       try {
         const detail = await getSlideSession(sessionId);
@@ -141,23 +129,6 @@ export default function SlideSessionPage() {
       cancelled = true;
     };
   }, [sessionId]);
-
-  async function refreshTemplates() {
-    setTemplatesLoading(true);
-    setTemplateError(null);
-    try {
-      setAvailableTemplates(await listAvailableTemplates());
-    } catch (err) {
-      setTemplateError(detailMessage(err));
-    } finally {
-      setTemplatesLoading(false);
-    }
-  }
-
-  // Pull the template list once on mount so the picker is populated.
-  useEffect(() => {
-    refreshTemplates();
-  }, []);
 
   // Tick the elapsed counter while a render is in flight so the user sees
   // visible progress instead of a static spinner.
@@ -275,21 +246,6 @@ export default function SlideSessionPage() {
     if (!window.confirm(`Delete "${session.title}"?`)) return;
     await removeSession(sessionId);
     router.push("/slides");
-  }
-
-  async function handleSelectTemplate(template: AvailableTemplate | null) {
-    setTemplateError(null);
-    try {
-      const updated = await setSessionTemplate(sessionId, template);
-      // Mirror the new state into the slide store so the sidebar and any
-      // render path see the same custom_template_* values immediately.
-      patchSession(sessionId, {
-        custom_template_id: updated.custom_template_id,
-        custom_template_name: updated.custom_template_name,
-      });
-    } catch (err) {
-      setTemplateError(detailMessage(err));
-    }
   }
 
   async function handleRename(e: FormEvent<HTMLFormElement>) {
@@ -431,110 +387,12 @@ export default function SlideSessionPage() {
         </div>
       </div>
 
-      <VisualTemplateRow
-        currentId={session?.custom_template_id ?? null}
-        currentName={session?.custom_template_name ?? null}
-        available={availableTemplates}
-        loading={templatesLoading}
-        error={templateError}
-        onSelect={(t) => void handleSelectTemplate(t)}
-        onRefresh={() => void refreshTemplates()}
-      />
       <ChatInput
         knowledgeBases={knowledgeBases}
         disabled={isStreaming || renderState !== null}
         onSend={handleSend}
       />
     </section>
-  );
-}
-
-function VisualTemplateRow({
-  currentId,
-  currentName,
-  available,
-  loading,
-  error,
-  onSelect,
-  onRefresh,
-}: {
-  currentId: string | null;
-  currentName: string | null;
-  available: AvailableTemplate[];
-  loading: boolean;
-  error: string | null;
-  onSelect: (template: AvailableTemplate | null) => void;
-  onRefresh: () => void;
-}) {
-  const builderUrl = presentonTemplateBuilderUrl();
-
-  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const id = e.target.value;
-    if (!id) {
-      onSelect(null);
-      return;
-    }
-    const t = available.find((x) => x.id === id);
-    if (t) onSelect(t);
-  }
-
-  return (
-    <div className="border-t border-border bg-muted/30 px-3 py-2">
-      <div className="mx-auto max-w-5xl">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Palette className="h-3.5 w-3.5 shrink-0" />
-          <span className="shrink-0">Visual template:</span>
-          <select
-            value={currentId ?? ""}
-            onChange={handleChange}
-            className="rounded-md border border-border bg-white px-2 py-0.5 text-xs"
-          >
-            <option value="">Default (general / modern)</option>
-            {available.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          {currentId && currentName ? (
-            <span className="text-xs italic">
-              using "{currentName}"
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
-            aria-label="Refresh templates"
-            className="rounded p-1 hover:bg-muted hover:text-foreground disabled:opacity-50"
-          >
-            {loading ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3 w-3" />
-            )}
-          </button>
-          <a
-            href={builderUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-0.5 hover:bg-muted hover:text-foreground"
-            title="Open Presenton's template builder in a new tab"
-          >
-            Create in Presenton <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-        {error ? (
-          <div className="mt-1 text-xs text-red-600">{error}</div>
-        ) : null}
-        {available.length === 0 && !loading ? (
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            No custom templates yet. Click "Create in Presenton" to author
-            one from a .pptx, then refresh.
-          </div>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
