@@ -74,6 +74,9 @@ class KnowledgeFile(Base):
     knowledge_base_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("knowledge_bases.id"), nullable=False
     )
+    # Denormalized from knowledge_bases.owner_user_id for direct
+    # ownership filtering on file queries without a join. Used by
+    # Sub-projects C/D for retrieval permission filtering.
     owner_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=False
     )

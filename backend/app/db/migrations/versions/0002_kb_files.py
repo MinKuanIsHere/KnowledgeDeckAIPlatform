@@ -73,6 +73,8 @@ def upgrade() -> None:
         sa.Column("storage_key", sa.Text, nullable=False),
         sa.Column(
             "status",
+            # PG_ENUM required: sa.Enum silently drops create_type=False in
+            # SQLAlchemy 2.0.x, causing DuplicateObject on the already-created type.
             PG_ENUM(
                 "uploaded", "parsing", "parsed", "embedding", "indexed", "failed",
                 name="file_status",
