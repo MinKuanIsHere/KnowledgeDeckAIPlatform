@@ -38,8 +38,14 @@ class MinioClient:
 
     async def ensure_bucket(self) -> None:
         def _impl() -> None:
-            if not self._client.bucket_exists(self._bucket):
+            # Attempt-then-ignore is race-safe under concurrent worker startup,
+            # unlike check-then-act which would let a second worker fail with
+            # BucketAlreadyOwnedByYou after both passed bucket_exists().
+            try:
                 self._client.make_bucket(self._bucket)
+            except S3Error as e:
+                if e.code not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                    raise
 
         await asyncio.to_thread(_impl)
 
@@ -73,7 +79,13 @@ _client: MinioClient | None = None
 
 
 def get_minio_client() -> MinioClient:
-    """Process-wide MinioClient. Tests replace `_client` directly via conftest."""
+    """Process-wide MinioClient. Tests replace `_client` directly via conftest.
+
+    Not thread-safe for first-call initialization. Safe in practice because
+    the lifespan (single-threaded asyncio context) calls this before any
+    request handlers run, so `_client` is already set by the time worker
+    threads or background tasks could reach it.
+    """
     global _client
     if _client is None:
         s = get_settings()
