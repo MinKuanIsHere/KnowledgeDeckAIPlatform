@@ -1,11 +1,18 @@
-"""Character-window text splitter with overlap.
+"""Recursive sentence-aware text splitter.
 
-Naive but predictable: walks `chunk_chars` characters at a time, stepping by
-`chunk_chars - chunk_overlap`. Good enough for MVP; LangChain's
-RecursiveCharacterTextSplitter would be a drop-in upgrade later if quality
-becomes an issue.
+Wraps LangChain's RecursiveCharacterTextSplitter so chunk boundaries land
+on natural breaks (paragraph -> newline -> sentence -> word -> char) rather
+than mid-sentence. Same public API as the previous naive splitter so
+callers don't change.
+
+Why character counts (not tokens): bge-m3 tokenizer isn't loaded in the
+backend runtime, and char-based windows correlate well enough with token
+counts for our embedding model. Default chunk_chars=1200 keeps each chunk
+well under bge-m3's 8K context.
 """
 from __future__ import annotations
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 def split_text(text: str, *, chunk_chars: int, chunk_overlap: int) -> list[str]:
@@ -16,15 +23,13 @@ def split_text(text: str, *, chunk_chars: int, chunk_overlap: int) -> list[str]:
         return []
     if len(text) <= chunk_chars:
         return [text]
-    step = chunk_chars - chunk_overlap
-    out: list[str] = []
-    start = 0
-    while start < len(text):
-        end = min(start + chunk_chars, len(text))
-        chunk = text[start:end].strip()
-        if chunk:
-            out.append(chunk)
-        if end == len(text):
-            break
-        start += step
-    return out
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_chars,
+        chunk_overlap=chunk_overlap,
+        # Order matters: highest-priority natural break first. Falls through
+        # until a separator can fit the chunk under chunk_size.
+        separators=["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", " ", ""],
+        length_function=len,
+        is_separator_regex=False,
+    )
+    return [s for s in (chunk.strip() for chunk in splitter.split_text(text)) if s]

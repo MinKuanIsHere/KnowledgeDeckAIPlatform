@@ -433,7 +433,7 @@ async def render_session(
         template = s.custom_template_id
     else:
         requested_template = (marker_params.get("template") or body.template).strip()
-        _BUILTIN_TEMPLATES = {"general", "modern"}
+        _BUILTIN_TEMPLATES = {"general", "modern", "standard", "swift"}
         if requested_template in _BUILTIN_TEMPLATES:
             template = requested_template
         else:

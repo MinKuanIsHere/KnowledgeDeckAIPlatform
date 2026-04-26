@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_user
 from app.db.base import async_session_factory, get_db
 from app.db.models import ChatMessage, ChatRole, ChatSession, User
-from app.services import chat_service
+from app.services import chat_service, rag
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -210,8 +210,15 @@ async def stream_chat(
             citations: list[dict[str, Any]] = []
             context = ""
             if use_rag:
-                context, citations = await chat_service.retrieve_context(
-                    user_id=user_id, kb_ids=kb_ids, query=user_message
+                # Multi-turn follow-ups ("and Python?", "what about that one?")
+                # are not standalone — embedding them directly drags retrieval
+                # off-topic. Rewriter resolves references against history into
+                # a self-contained query before we hit the vector store.
+                rag_query = await chat_service.rewrite_for_retrieval(
+                    history=history, user_message=user_message
+                )
+                context, citations = await rag.retrieve_context(
+                    user_id=user_id, kb_ids=kb_ids, query=rag_query
                 )
 
             collected: list[str] = []

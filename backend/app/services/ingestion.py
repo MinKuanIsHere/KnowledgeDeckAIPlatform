@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.models import FileStatus, KnowledgeFile
-from app.services import document_parser, qdrant_store, text_splitter
+from app.services import document_parser, qdrant_store, sparse_embed, text_splitter
 from app.services.model_clients import EmbeddingClient
 
 logger = logging.getLogger(__name__)
@@ -82,14 +82,17 @@ async def ingest_file(
             return
 
         await qdrant_store.ensure_collection()
-        vectors = await _embed([c["text"] for c in chunks])
+        texts = [c["text"] for c in chunks]
+        dense_vectors = await _embed(texts)
+        sparse_vectors = await sparse_embed.embed_passages(texts)
         await qdrant_store.upsert_chunks(
             user_id=file_row.owner_user_id,
             kb_id=file_row.knowledge_base_id,
             file_id=file_row.id,
             filename=file_row.filename,
             chunks=chunks,
-            vectors=vectors,
+            dense_vectors=dense_vectors,
+            sparse_vectors=sparse_vectors,
         )
 
         file_row.status = FileStatus.INDEXED

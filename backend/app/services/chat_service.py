@@ -1,9 +1,12 @@
-"""Chat orchestration: history → optional RAG retrieval → vLLM streaming.
+"""Chat-only orchestration: history + (optional) RAG context → vLLM streaming.
 
-Uses LangChain's ChatOpenAI for the streaming LLM call so we get token-level
-async streaming for free, plus the standard message types. RAG retrieval calls
-the existing EmbeddingClient + qdrant_store; assembling the final prompt is
-done manually because there is no template substitution worth abstracting.
+RAG retrieval lives in `app.services.rag` and is shared with the slide
+maker. This module contains:
+  - the chat SYSTEM_PROMPT
+  - `rewrite_for_retrieval` — chat-specific follow-up rewriter, used so
+    multi-turn pronouns ("and Python?", "what about that one?") embed
+    against a self-contained query rather than the literal user message
+  - `stream_answer` — token-streaming reply assembly
 """
 from __future__ import annotations
 
@@ -16,17 +19,89 @@ from langchain_openai import ChatOpenAI
 
 from app.core.config import get_settings
 from app.db.models import ChatMessage, ChatRole
-from app.services import ingestion, qdrant_store
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are KnowledgeDeck, a concise assistant. When context is provided, "
-    "ground your answer in it and avoid speculation. If the context is empty "
-    "or irrelevant, answer from general knowledge but say so."
+    "You are KnowledgeDeck, a helpful conversational assistant.\n\n"
+    "This is a multi-turn conversation. The messages above (if any) are the "
+    "prior turns — treat them as the running context. Refer back to facts, "
+    "preferences, and details the user has shared earlier in the conversation, "
+    "and maintain continuity across turns.\n\n"
+    "When a `Context:` section is included by the system, prefer it as the "
+    "source for factual claims about the user's documents. When `Context:` is "
+    "absent or irrelevant to the question, answer from your general knowledge.\n\n"
+    "Be concise. Do not refuse to recall information the user has shared "
+    "earlier in this conversation — the conversation history above is yours "
+    "to use."
 )
-RAG_TOP_K = 5
-HISTORY_MAX_MESSAGES = 10
+# 20 = up to ~10 user/assistant pairs. Conversational chat tends to have
+# short turns, so this is plenty before older turns fall off the window.
+HISTORY_MAX_MESSAGES = 20
+
+
+_REWRITE_SYSTEM = (
+    "You rewrite chat questions into standalone search queries.\n"
+    "Input: a short conversation history followed by the user's most recent "
+    "question. The recent question may use pronouns ('that', 'it', 'this one'), "
+    "elliptical references ('and Python?'), or implicit context that only "
+    "makes sense relative to the prior turns.\n"
+    "Output: a single self-contained query suitable for a vector search "
+    "engine. Resolve all references inline. Do not add quotation marks. Do "
+    "not explain. Do not prefix with 'Query:'. Output ONE LINE only.\n"
+    "If the recent question is already standalone, output it unchanged."
+)
+
+
+async def rewrite_for_retrieval(
+    history: list[ChatMessage], user_message: str
+) -> str:
+    """Returns a standalone query string, suitable for embedding.
+
+    No-op (returns user_message verbatim) when history is empty — first
+    turns are already standalone. On any LLM error, also falls back to
+    user_message so retrieval still works.
+    """
+    if not history:
+        return user_message
+    # Compress to last few turns for the rewriter's context — full history
+    # is overkill and slow.
+    recent = history[-6:]
+    transcript_lines: list[str] = []
+    for m in recent:
+        role = "User" if m.role is ChatRole.USER else "Assistant"
+        # Trim long assistant responses; only the gist matters for reference
+        # resolution.
+        body = m.content if len(m.content) <= 400 else m.content[:400] + "..."
+        transcript_lines.append(f"{role}: {body}")
+    prompt = (
+        "Conversation history:\n"
+        + "\n".join(transcript_lines)
+        + f"\n\nMost recent question:\n{user_message}\n\nStandalone query:"
+    )
+
+    s = get_settings()
+    try:
+        rewriter = ChatOpenAI(
+            model=s.llm_model,
+            base_url=s.llm_base_url,
+            api_key=s.llm_api_key,
+            streaming=False,
+            temperature=0,
+            max_tokens=128,
+        )
+        result = await rewriter.ainvoke(
+            [SystemMessage(content=_REWRITE_SYSTEM), HumanMessage(content=prompt)]
+        )
+        rewritten = (result.content or "").strip()
+        # Defensive: bail if model went off the rails (returned nothing,
+        # multiline explanation, or something far longer than expected).
+        if not rewritten or len(rewritten) > 500 or "\n" in rewritten:
+            return user_message
+        return rewritten
+    except Exception:
+        logger.exception("query_rewrite_failed; falling back to raw user message")
+        return user_message
 
 
 def _build_llm() -> ChatOpenAI:
@@ -40,18 +115,6 @@ def _build_llm() -> ChatOpenAI:
     )
 
 
-def _format_context(hits: list[dict[str, Any]]) -> str:
-    if not hits:
-        return ""
-    out: list[str] = []
-    for i, hit in enumerate(hits, start=1):
-        payload = hit["payload"]
-        page = payload.get("page_number")
-        loc = f" (p.{page})" if page else ""
-        out.append(f"[{i}] {payload['filename']}{loc}\n{payload['text']}")
-    return "\n\n".join(out)
-
-
 def _history_to_messages(rows: list[ChatMessage]) -> list[HumanMessage | AIMessage]:
     msgs: list[HumanMessage | AIMessage] = []
     for r in rows[-HISTORY_MAX_MESSAGES:]:
@@ -60,26 +123,6 @@ def _history_to_messages(rows: list[ChatMessage]) -> list[HumanMessage | AIMessa
         else:
             msgs.append(AIMessage(content=r.content))
     return msgs
-
-
-async def retrieve_context(
-    *, user_id: int, kb_ids: list[int] | None, query: str
-) -> tuple[str, list[dict[str, Any]]]:
-    """Returns (context_block, citations). Citations are unique by file_id."""
-    query_vec = await ingestion.embed_query(query)
-    hits = await qdrant_store.search(
-        query_vector=query_vec, user_id=user_id, kb_ids=kb_ids, top_k=RAG_TOP_K
-    )
-    context = _format_context(hits)
-    seen: set[int] = set()
-    citations: list[dict[str, Any]] = []
-    for hit in hits:
-        fid = hit["payload"]["file_id"]
-        if fid in seen:
-            continue
-        seen.add(fid)
-        citations.append({"file_id": fid, "filename": hit["payload"]["filename"]})
-    return context, citations
 
 
 async def stream_answer(

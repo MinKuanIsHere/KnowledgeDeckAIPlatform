@@ -1,8 +1,15 @@
 """Slide-planner conversational service.
 
-Mirrors chat_service but with a different system prompt. The LLM is
-instructed to ask clarifying questions, propose markdown outlines, and
-mark its turn with `[OUTLINE_READY]` once the user has confirmed.
+Same shape as chat_service (history → optional RAG context → LLM stream)
+but with a slide-planning SYSTEM_PROMPT that walks the user through
+clarifying questions → markdown outline → `[OUTLINE_READY]` confirmation.
+
+Shares `app.services.rag.retrieve_context` with chat — same hybrid
+search + rerank pipeline. The only retrieval-side difference is the
+*query string* we hand to RAG: slide maker anchors to the FIRST user
+message in the session (the deck's topic) so later clarifying turns
+("yes render it", "more about X") don't drag the retrieved chunks
+off-topic.
 """
 from __future__ import annotations
 
@@ -15,7 +22,7 @@ from langchain_openai import ChatOpenAI
 
 from app.core.config import get_settings
 from app.db.models import SlideMessage, SlideRole
-from app.services import chat_service
+from app.services import rag
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +39,14 @@ SYSTEM_PROMPT = (
     "avoided. Ask only the questions that are still missing — do not re-ask "
     "things already in scope.\n"
     "   Visual templates available in Presenton:\n"
-    "     - `general` — clean, neutral default\n"
-    "     - `modern` — bold, contemporary styling\n"
-    "   Use ONLY one of these two values. If the user requests anything "
-    "else (e.g. classic / professional), pick whichever of the two fits "
-    "their intent better and tell them which one you chose. If unstated, "
-    "default to `general`.\n"
+    "     - `general`  — clean, neutral default\n"
+    "     - `modern`   — bold, contemporary styling\n"
+    "     - `standard` — conservative, formal corporate layout\n"
+    "     - `swift`    — minimal, energetic visual rhythm\n"
+    "   Use ONLY one of these four values. If the user requests something "
+    "outside this list (e.g. classic / professional / playful), pick "
+    "whichever of the four fits their intent best and tell them which one "
+    "you chose. If unstated, default to `general`.\n"
     "2. When you have enough information, propose a draft outline. Format "
     "STRICTLY as markdown with this exact structure:\n\n"
     "## Slide 1: <Title>\n"
@@ -58,9 +67,18 @@ SYSTEM_PROMPT = (
     "Do not emit this marker until the user has explicitly confirmed they "
     "want to render.\n\n"
     "Rules:\n"
-    "- Use the provided RAG context only to ground content; do not invent "
-    "facts beyond what is given.\n"
-    "- Keep bullets concise (one short sentence each).\n"
+    "- When RAG context is provided, treat it as the PRIMARY source for "
+    "facts/numbers/specifics. Beyond what's in the context, you MAY draw on "
+    "your own widely-known general knowledge to make the outline more "
+    "substantive — definitions, common patterns, well-established best "
+    "practices, illustrative real-world examples. Do NOT fabricate specific "
+    "statistics, dates, quotes, named studies, or proprietary/internal data "
+    "that are not in the RAG context.\n"
+    "- Aim for informative bullets, not skeletal ones. Each bullet is "
+    "typically one short sentence, but a second clause is welcome when it "
+    "adds concrete value (a key term, a brief example, a 'why it matters'). "
+    "Avoid filler phrasing.\n"
+    "- Per slide, prefer 3-5 bullets unless the user requests otherwise.\n"
     "- Do not write any prose between slide blocks in the outline itself; "
     "everything outside the ## blocks belongs above or below the outline.\n"
     "- Never emit the OUTLINE_READY marker on a turn where you are still "
@@ -116,14 +134,14 @@ async def stream_planner(
             (m.content for m in history if m.role is SlideRole.USER),
             user_message,
         )
-        context, citations = await chat_service.retrieve_context(
+        context, citations = await rag.retrieve_context(
             user_id=user_id, kb_ids=kb_ids, query=first_user
         )
 
     messages: list[Any] = [SystemMessage(content=SYSTEM_PROMPT)]
     messages.extend(_history_to_messages(history))
     if context:
-        messages.append(SystemMessage(content=f"Reference context:\n{context}"))
+        messages.append(SystemMessage(content=f"Context:\n{context}"))
     messages.append(HumanMessage(content=user_message))
 
     llm = _build_llm()

@@ -129,8 +129,6 @@ services:
     image: vllm/vllm-openai:v0.19.1-x86_64-cu130
     profiles: ["gpu"]
     ipc: host
-    environment:
-      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
     ports:
       - "${VLLM_CHAT_PORT:-8000}:8000"
     volumes:
@@ -154,8 +152,11 @@ services:
       resources:
         reservations:
           devices:
+            # All three vLLM services share GPU_DEVICE (default 0). Override
+            # in .env to spread across multiple GPUs.
             - driver: nvidia
-              count: 1
+              device_ids:
+                - "${GPU_DEVICE:-0}"
               capabilities: [gpu]
 
   vllm_embedding:
@@ -163,8 +164,6 @@ services:
     image: vllm/vllm-openai:v0.19.1-x86_64-cu130
     profiles: ["gpu"]
     ipc: host
-    environment:
-      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
     ports:
       - "${VLLM_EMBEDDING_PORT:-8001}:8000"
     volumes:
@@ -177,7 +176,7 @@ services:
       - --port
       - "8000"
       - --gpu-memory-utilization
-      - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.22}
+      - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.08}
       - --max-model-len
       - ${VLLM_EMBEDDING_MAX_MODEL_LEN:-8192}
     deploy:
@@ -185,7 +184,52 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids:
+                - "${GPU_DEVICE:-0}"
+              capabilities: [gpu]
+
+  # Cross-encoder reranker. Runs vLLM in `--task=score` mode so the
+  # `/v1/score` endpoint pairs (query, passage) and returns relevance
+  # scores. Used to re-order Qdrant's top-N dense hits before they hit
+  # the LLM prompt. Lives on its own GPU (default: GPU 3, the empty one)
+  # so it doesn't compete with the chat model for memory.
+  vllm_rerank:
+    container_name: knowledgedeck_vllm_rerank
+    image: vllm/vllm-openai:v0.19.1-x86_64-cu130
+    profiles: ["gpu"]
+    ipc: host
+    ports:
+      - "${VLLM_RERANK_PORT:-8002}:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    command:
+      - --model
+      - ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+      # vLLM 0.19 dropped --task. For cross-encoder rerankers we use
+      # --runner pooling + --convert classify so the /score endpoint
+      # exposes (query, passage) pairwise scoring.
+      - --runner
+      - pooling
+      - --convert
+      - classify
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - ${VLLM_RERANK_GPU_MEMORY_UTILIZATION:-0.08}
+      - --max-model-len
+      - ${VLLM_RERANK_MAX_MODEL_LEN:-2048}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # Pin to the same GPU as chat + embedding to keep all vLLM
+            # services on a single device. Override via VLLM_RERANK_GPU_DEVICE
+            # in .env if you want to spread across GPUs (e.g. set to "3").
+            - driver: nvidia
+              device_ids:
+                - "${VLLM_RERANK_GPU_DEVICE:-0}"
               capabilities: [gpu]
 
 volumes:

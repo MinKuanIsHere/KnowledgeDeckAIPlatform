@@ -62,6 +62,17 @@ class MinioClient:
 
         await asyncio.to_thread(_impl)
 
+    async def get_object(self, key: str) -> bytes:
+        def _impl() -> bytes:
+            response = self._client.get_object(self._bucket, key)
+            try:
+                return response.read()
+            finally:
+                response.close()
+                response.release_conn()
+
+        return await asyncio.to_thread(_impl)
+
     async def delete_object(self, key: str) -> None:
         def _impl() -> None:
             try:

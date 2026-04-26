@@ -48,6 +48,23 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://knowledgedeck_qdrant:6333"
     qdrant_collection: str = "knowledgedeck"
 
+    # RAG retrieval knobs.
+    # rag_dense_top_k: how many candidates Qdrant returns before rerank.
+    # rag_final_top_k: how many chunks survive after rerank → into prompt.
+    # rag_min_score: cosine threshold below which dense hits are dropped
+    #   (post-rerank rerank score is also thresholded by rag_rerank_min_score).
+    # rag_rerank_min_score: cross-encoder score threshold; below this the
+    #   rerank result is treated as "no relevant context".
+    rag_dense_top_k: int = 20
+    rag_final_top_k: int = 5
+    rag_min_score: float = 0.30
+    rag_rerank_min_score: float = 0.10
+
+    # Reranker (cross-encoder) — separate vLLM service running in score mode.
+    rerank_base_url: str = "http://knowledgedeck_vllm_rerank:8000/v1"
+    rerank_api_key: str = "local-dev-key"
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+
     # Presenton (PPTX rendering) — runs as a separate compose service. The
     # shared volume mounted at presenton_data_root lets backend read PPTX
     # files Presenton wrote without proxying via HTTP.
