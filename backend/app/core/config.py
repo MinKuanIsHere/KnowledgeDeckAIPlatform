@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    minio_endpoint: str = "knowledgedeck_minio:9000"
+    minio_access_key: str = "change-me"
+    minio_secret_key: str = "change-me"
+    minio_bucket: str = "knowledgedeck"
+    minio_secure: bool = False  # MVP runs MinIO over plain HTTP inside the compose network
+
+    # 50 MiB hard cap on a single file upload.
+    max_upload_bytes: int = 52_428_800
+
     llm_base_url: str = "http://knowledgedeck_vllm_chat:8000/v1"
     llm_api_key: str = "local-dev-key"
     llm_model: str = "google/gemma-4-E4B-it"
