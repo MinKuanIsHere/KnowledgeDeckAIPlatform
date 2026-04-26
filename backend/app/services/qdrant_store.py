@@ -119,12 +119,15 @@ async def search(
             must.append(
                 qm.FieldCondition(key="kb_id", match=qm.MatchAny(any=kb_ids))
             )
-        results = _get_client().search(
+        # qdrant-client 1.12+ deprecated `search()` in favor of `query_points`
+        # which returns a `QueryResponse` with `.points`.
+        response = _get_client().query_points(
             collection_name=s.qdrant_collection,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=qm.Filter(must=must),
             limit=top_k,
+            with_payload=True,
         )
-        return [{"score": r.score, "payload": r.payload} for r in results]
+        return [{"score": p.score, "payload": p.payload} for p in response.points]
 
     return await asyncio.to_thread(_impl)

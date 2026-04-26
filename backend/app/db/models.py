@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -11,6 +12,7 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -114,3 +116,57 @@ class KnowledgeFile(Base):
             postgresql_where=sa.text("deleted_at IS NULL"),
         ),
     )
+
+
+class ChatRole(enum.Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="New Chat")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="session", order_by="ChatMessage.id"
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("chat_sessions.id"), nullable=False
+    )
+    role: Mapped[ChatRole] = mapped_column(
+        SAEnum(
+            ChatRole,
+            name="chat_role",
+            create_type=False,
+            values_callable=lambda enum_cls: [m.value for m in enum_cls],
+        ),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # List of {"file_id": int, "filename": str} dicts. NULL on user messages.
+    citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    session: Mapped[ChatSession] = relationship(back_populates="messages")
