@@ -1,5 +1,6 @@
 "use client";
 
+import { Bot, User } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -204,9 +205,14 @@ function MessageBubble({
   const isUser = message.role === "user";
   const ts = formatTimestamp(message.created_at);
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`flex items-start gap-2 ${
+        isUser ? "flex-row-reverse" : "flex-row"
+      }`}
+    >
+      <Avatar isUser={isUser} />
       <div
-        className={`flex max-w-[88%] flex-col gap-1 md:max-w-[78%] lg:max-w-[68%] ${
+        className={`flex max-w-[85%] flex-col gap-1 md:max-w-[75%] lg:max-w-[65%] ${
           isUser ? "items-end" : "items-start"
         }`}
       >
@@ -244,6 +250,25 @@ function MessageBubble({
         </div>
         <div className="px-1 text-[10px] text-muted-foreground">{ts}</div>
       </div>
+    </div>
+  );
+}
+
+function Avatar({ isUser }: { isUser: boolean }) {
+  // 32x32 circular icon. User = filled foreground; assistant = subtle bg.
+  return isUser ? (
+    <div
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-white"
+      aria-label="User"
+    >
+      <User className="h-4 w-4" />
+    </div>
+  ) : (
+    <div
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-white text-foreground"
+      aria-label="Assistant"
+    >
+      <Bot className="h-4 w-4" />
     </div>
   );
 }
