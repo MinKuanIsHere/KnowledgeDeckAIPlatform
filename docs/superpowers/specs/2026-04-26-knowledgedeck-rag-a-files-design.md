@@ -247,7 +247,8 @@ Matches the existing auth feature's shape — a flat string code in `detail`:
 ```
 
 Codes used: `kb_not_found`, `duplicate_kb_name`, `duplicate_filename`,
-`invalid_extension`, `invalid_content`, `file_too_large`.
+`invalid_extension`, `invalid_content`, `file_too_large`, `storage_error`
+(returned with HTTP 500 when the MinIO upload fails after DB rollback).
 
 ## Frontend
 

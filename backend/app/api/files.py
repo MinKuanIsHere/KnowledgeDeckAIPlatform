@@ -5,7 +5,6 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
-    Response,
     UploadFile,
     status,
 )
@@ -38,11 +37,14 @@ class FileOut(BaseModel):
 
 
 def _content_type_for(extension: str) -> str:
-    return {
+    mapping = {
         "pdf": "application/pdf",
         "txt": "text/plain; charset=utf-8",
         "cs": "text/x-csharp; charset=utf-8",
-    }[extension]
+    }
+    # Falls back to a binary safe default; defensive in case a new extension
+    # is added to ALLOWED_EXTENSIONS without updating this map.
+    return mapping.get(extension, "application/octet-stream")
 
 
 async def _load_owned_kb(
