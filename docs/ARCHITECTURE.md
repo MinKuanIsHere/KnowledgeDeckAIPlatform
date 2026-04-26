@@ -345,6 +345,53 @@ If the user already typed a complete natural-language question, the rewriter pas
 
 **Slide Maker does NOT use the rewriter.** Slide planner conversations have a stable topic anchor — the deck's first user message (`"3 slides about Kubernetes basics"`). Subsequent turns are clarifying questions / iteration tweaks ("yes render", "more about networking") that should re-retrieve against the original topic, not the literal turn message.
 
+### Multi-turn behavior
+
+A common question: *"In a multi-turn chat, does RAG run every turn, or just the first?"*
+
+**Answer**: every turn that has `use_rag=true` re-runs the full pipeline. There is no cross-turn caching, no "last citations stay sticky", and no "RAG only on the first turn" optimization. Each request is a fresh retrieve against the current rewritten query.
+
+**What the rewriter does in multi-turn** (the cases that fail without it):
+
+| User types (turn N) | History | Rewriter output | Why it matters |
+|---|---|---|---|
+| `"k8s"` | empty | `"What is Kubernetes?"` | Cold-start abbreviation expansion |
+| `"and what about deployments?"` | turn 1 about Kubernetes | `"What are deployments in Kubernetes?"` | Without "Kubernetes" in the query, retrieval drifts |
+| `"compare them"` | 4 prior msgs about Pods + Deployments | `"Compare Pods and Deployments in Kubernetes"` | Resolves both pronouns from history |
+
+**What the LLM actually sees** (this is the non-obvious part):
+
+```
+[SystemMessage]   chat SYSTEM_PROMPT
+[HumanMessage]    turn 1 user (raw, NOT rewritten)
+[AIMessage]       turn 1 assistant
+[HumanMessage]    turn 2 user (raw)
+[AIMessage]       turn 2 assistant
+... up to HISTORY_MAX_MESSAGES = 20 ...
+[SystemMessage]   "Context:\n[1] file.txt\n<chunk text>\n..."  ← ONLY current turn's hits
+[HumanMessage]    current turn user message (raw, NOT rewritten)
+```
+
+Three properties to internalize:
+
+1. **The rewriter only steers retrieval**, never the LLM. The HumanMessage at the bottom is always the literal user message. So if the rewriter mangles a statement (e.g., "My favourite color is teal" → "What is my favourite color?"), it just produces empty citations — the LLM still sees the original statement and replies correctly.
+
+2. **Past citations don't accumulate.** The `Context:` block contains only the chunks that retrieval returned for *this* turn. If turn 1 cited `pods.txt` and turn 2 cited `deployments.txt`, turn 3 sees neither in its `Context:` block — turn 3 retrieval runs from scratch. The LLM still has secondary memory through the *assistant text* of past turns sitting in history, but the original chunk text from earlier turns is gone.
+
+3. **History sliding window**: `HISTORY_MAX_MESSAGES = 20` (chat) caps how many user/assistant turns get re-injected into each prompt. The 11th turn forward starts dropping the oldest turn pair. The rewriter looks at an even narrower window (last 6 messages) — full history is overkill for reference resolution.
+
+**Verified by repro** (on this codebase):
+
+```
+Turn 1: 'k8s'                            → 4 citations (kubernetes_basics × 3, test.md)
+Turn 2: 'and what about deployments?'    → 3 citations (kubernetes_basics × 3)
+Turn 3: 'compare them'                   → 3 citations (kubernetes_basics × 3)
+Turn 4: 'My favourite color is teal'     → 0 citations (KB has no color content)
+        — LLM still answers correctly via original-message visibility
+```
+
+**Slide Maker is different**. Multi-turn slide-planner conversations *don't* re-rewrite per turn. Retrieval is anchored to the session's first user message (the deck topic). Iteration turns ("yes render it", "more about networking") would not benefit from being treated as fresh search queries.
+
 ---
 
 ## Chat
