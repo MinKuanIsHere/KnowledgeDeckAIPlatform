@@ -1,4 +1,5 @@
 import io
+from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
@@ -141,3 +142,54 @@ async def upload_file(
         status_error=row.status_error,
         created_at=row.created_at.isoformat(),
     )
+
+
+@router.get("/{kb_id}/files", response_model=list[FileOut])
+async def list_files(
+    kb_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> list[FileOut]:
+    await _load_owned_kb(session, owner_user_id=user.id, kb_id=kb_id)
+    rows = await session.scalars(
+        select(KnowledgeFile)
+        .where(
+            KnowledgeFile.knowledge_base_id == kb_id,
+            KnowledgeFile.deleted_at.is_(None),
+        )
+        .order_by(KnowledgeFile.created_at.desc())
+    )
+    return [
+        FileOut(
+            id=r.id,
+            knowledge_base_id=r.knowledge_base_id,
+            filename=r.filename,
+            extension=r.extension,
+            size_bytes=r.size_bytes,
+            status=r.status.value,
+            status_error=r.status_error,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rows.all()
+    ]
+
+
+@router.delete("/{kb_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_file(
+    kb_id: int,
+    file_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    await _load_owned_kb(session, owner_user_id=user.id, kb_id=kb_id)
+    row = await session.scalar(
+        select(KnowledgeFile).where(
+            KnowledgeFile.id == file_id,
+            KnowledgeFile.knowledge_base_id == kb_id,
+            KnowledgeFile.deleted_at.is_(None),
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="file_not_found")
+    row.deleted_at = datetime.now(timezone.utc)
+    await session.commit()
