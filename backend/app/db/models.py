@@ -5,6 +5,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
@@ -170,3 +171,26 @@ class ChatMessage(Base):
     )
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class SlideProject(Base):
+    __tablename__ = "slide_projects"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    use_rag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # JSONB list of int kb_ids, or NULL meaning "all KBs of the owner".
+    kb_ids: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+    # MVP mock: plain-text outline. When Presenton lands this becomes a
+    # storage_key pointing at a real PPTX in MinIO.
+    outline: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
