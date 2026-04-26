@@ -11,15 +11,21 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const setSession = useAuthStore((s) => s.setSession);
   const clearSession = useAuthStore((s) => s.clearSession);
-  const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated());
+  // Start as `false` for SSR — `useAuthStore.persist` does not exist on the
+  // server (zustand persist is a client-only middleware). The effect below
+  // flips this to true once we are on the client and persist has hydrated.
+  const [hydrated, setHydrated] = useState(false);
   const [verified, setVerified] = useState(false);
 
-  // Wait for Zustand persist to finish reading from localStorage on first mount.
   useEffect(() => {
-    if (hydrated) return;
-    const unsub = useAuthStore.persist.onFinishHydration(() => setHydrated(true));
-    return unsub;
-  }, [hydrated]);
+    const persist = useAuthStore.persist;
+    if (!persist) return;
+    if (persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
+    return persist.onFinishHydration(() => setHydrated(true));
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
