@@ -11,6 +11,11 @@ def test_settings_defaults_match_local_development() -> None:
     assert settings.embedding_base_url == "http://knowledgedeck_vllm_embedding:8001/v1"
     assert settings.embedding_model == "BAAI/bge-m3"
     assert settings.gpu_device == "0"
+    assert settings.database_url == (
+        "postgresql+psycopg://knowledgedeck:change-me@knowledgedeck_postgres:5432/knowledgedeck"
+    )
+    assert settings.initial_user_username == ""
+    assert settings.initial_user_password == ""
 
 
 def test_settings_accept_endpoint_overrides() -> None:
@@ -29,3 +34,15 @@ def test_settings_accept_endpoint_overrides() -> None:
     assert settings.embedding_base_url == "https://embeddings.example.test/v1"
     assert settings.embedding_api_key == "embedding-key"
     assert settings.embedding_model == "custom-embedding"
+
+
+def test_settings_accept_initial_user_overrides() -> None:
+    settings = Settings(
+        database_url="postgresql+psycopg://test:test@localhost:5432/test",
+        initial_user_username="admin",
+        initial_user_password="admin-password",
+    )
+
+    assert settings.database_url == "postgresql+psycopg://test:test@localhost:5432/test"
+    assert settings.initial_user_username == "admin"
+    assert settings.initial_user_password == "admin-password"

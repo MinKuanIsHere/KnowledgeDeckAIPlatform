@@ -308,7 +308,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
+    username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     password: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -498,11 +498,9 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
-    op.create_index("idx_users_username", "users", ["username"])
 
 
 def downgrade() -> None:
-    op.drop_index("idx_users_username", table_name="users")
     op.drop_table("users")
 ```
 

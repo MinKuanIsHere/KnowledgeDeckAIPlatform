@@ -1,6 +1,5 @@
 from functools import lru_cache
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,9 +10,12 @@ class Settings(BaseSettings):
     environment: str = "local"
     api_prefix: str = "/api"
 
-    jwt_secret_key: str = Field(default="change-me", min_length=8)
-    jwt_algorithm: str = "HS256"
-    jwt_access_token_minutes: int = 60
+    database_url: str = (
+        "postgresql+psycopg://knowledgedeck:change-me@knowledgedeck_postgres:5432/knowledgedeck"
+    )
+
+    initial_user_username: str = ""
+    initial_user_password: str = ""
 
     llm_base_url: str = "http://knowledgedeck_vllm_chat:8000/v1"
     llm_api_key: str = "local-dev-key"
