@@ -53,7 +53,9 @@ async def db_session(shared_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     """Per-test clean state via TRUNCATE; tests may freely commit."""
     factory = async_sessionmaker(shared_engine, expire_on_commit=False)
     async with factory() as setup:
-        await setup.execute(text("TRUNCATE TABLE users RESTART IDENTITY"))
+        await setup.execute(text(
+            "TRUNCATE TABLE files, knowledge_bases, users RESTART IDENTITY CASCADE"
+        ))
         await setup.commit()
 
     async with factory() as session:
