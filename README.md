@@ -409,24 +409,35 @@ Accepted file formats: **txt, pdf, cs, md, docx, pptx**. 50 MB cap. Format is va
 ```
 backend/
   app/
-    api/            ← FastAPI routers, one file per domain (auth, files, chat, ...)
-    services/       ← Business logic (rag, chat_service, slide_chat_service, ingestion, ...)
-    db/             ← SQLAlchemy models + Alembic migrations
-    core/           ← Settings (Pydantic)
-  tests/            ← pytest + testcontainers
+    core/                    ← Pydantic Settings (config.py)
+    db/                      ← SQLAlchemy models + Alembic migrations
+    shared/
+      api/                   ← auth, deps, health, llm_info
+      services/              ← auth_service
+    features/
+      rag/                   ← shared retrieval module (used by KB+Chat+Slide)
+      knowledge_bases/       ← KB + file CRUD
+      chat/                  ← chat sessions + SSE stream + rewriter
+      slides/                ← slide planner + Presenton render
+    main.py
+  tests/                     ← pytest + testcontainers
   requirements.txt
 
 frontend/
-  app/              ← Next.js 15 App Router (routes)
-    (protected)/    ← Auth-gated routes (chat, KB, slides, dashboard)
+  app/                       ← Next.js 15 App Router (routes)
+    (protected)/             ← Auth-gated: chat (root) / kb / slides / dashboard
     login/
-  components/       ← Reusable UI (ChatInput, DropUpload, AuthGuard, ...)
-  lib/              ← API clients + Zustand stores
+  components/                ← Reusable UI (ChatInput, DropUpload, AuthGuard, …)
+  lib/                       ← API clients + Zustand stores per feature
 
-docker-compose.yml  ← All services (postgres, qdrant, minio, vllm × 3, presenton, backend, frontend)
-.env.example        ← Documented config template
-docs/superpowers/   ← Design specs and implementation plans
+docs/
+  ARCHITECTURE.md            ← Full system design + per-feature deep-dive
+  API.md                     ← Endpoint reference + curl recipes
+docker-compose.yml           ← All services (postgres, qdrant, minio, vllm × 3, presenton, backend, frontend)
+.env.example                 ← Documented config template
 ```
+
+For full layout including service deps and design decisions, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Running Tests
 

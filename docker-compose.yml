@@ -24,25 +24,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
-      qdrant:
-        condition: service_started
-      minio:
-        condition: service_started
-
-  worker:
-    container_name: knowledgedeck_worker
-    build:
-      context: ./backend
-    command: ["python", "-m", "app.worker"]
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
       qdrant:
         condition: service_started
       minio:
@@ -68,12 +49,6 @@ services:
       timeout: 5s
       retries: 15
       start_period: 5s
-
-  redis:
-    container_name: knowledgedeck_redis
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
 
   qdrant:
     container_name: knowledgedeck_qdrant
