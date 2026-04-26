@@ -87,4 +87,19 @@ describe("knowledge-bases API client", () => {
     mock.onDelete("/knowledge-bases/3/files/9").reply(204);
     await deleteFile(3, 9);
   });
+
+  it("uploadFile does not invoke onProgress when e.total is 0", async () => {
+    let called = false;
+    mock.onPost("/knowledge-bases/3/files").reply((config) => {
+      config.onUploadProgress?.(
+        { loaded: 0, total: 0 } as unknown as AxiosProgressEvent
+      );
+      return [201, {
+        id: 9, knowledge_base_id: 3, filename: "x.txt", extension: "txt",
+        size_bytes: 1, status: "uploaded", status_error: null, created_at: "t",
+      }];
+    });
+    await uploadFile(3, new File(["x"], "x.txt"), () => { called = true; });
+    expect(called).toBe(false);
+  });
 });

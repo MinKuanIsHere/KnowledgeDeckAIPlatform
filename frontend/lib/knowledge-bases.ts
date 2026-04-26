@@ -1,4 +1,14 @@
+"use client";
+
 import { api } from "./api";
+
+export type FileStatus =
+  | "uploaded"
+  | "parsing"
+  | "parsed"
+  | "embedding"
+  | "indexed"
+  | "failed";
 
 export type KnowledgeBase = {
   id: number;
@@ -21,7 +31,7 @@ export type KnowledgeFile = {
   filename: string;
   extension: string;
   size_bytes: number;
-  status: string;
+  status: FileStatus;
   status_error: string | null;
   created_at: string;
 };
@@ -64,7 +74,7 @@ export async function uploadFile(
     {
       onUploadProgress: (e) => {
         if (!onProgress || !e.total) return;
-        onProgress(Math.round((e.loaded / e.total) * 100));
+        onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
       },
     },
   );
