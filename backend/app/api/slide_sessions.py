@@ -34,6 +34,10 @@ router = APIRouter(prefix="/slide-sessions", tags=["slide-sessions"])
 
 # Pulled from slide_chat_service for centralized parsing.
 _OUTLINE_READY_MARKER = slide_chat_service.OUTLINE_READY_MARKER
+# Matches the marker plus any optional `key=value` args inside the brackets.
+# Examples: `[OUTLINE_READY]`, `[OUTLINE_READY template=modern]`,
+# `[OUTLINE_READY template=professional language=Spanish]`.
+_MARKER_RE = re.compile(r"\[OUTLINE_READY(?:\s+([^\]]+))?\]")
 # Matches any "## Slide N: Title" block until the next "## Slide" or end.
 _SLIDE_BLOCK_RE = re.compile(
     r"^##\s*Slide\s+\d+\s*:.*?(?=^##\s*Slide\s+\d+\s*:|\Z)",
@@ -135,16 +139,29 @@ def _split_slide_blocks(outline_markdown: str) -> list[str]:
     return [b for b in blocks if b]
 
 
-def _extract_outline(messages: list[SlideMessage]) -> str | None:
-    """Returns the outline markdown from the most recent assistant message
-    that emitted [OUTLINE_READY], with the marker stripped. Returns None if
-    no such message exists."""
+def _extract_outline(
+    messages: list[SlideMessage],
+) -> tuple[str, dict[str, str]] | None:
+    """Find the latest assistant turn carrying the OUTLINE_READY marker,
+    strip the marker, and parse any key=value args inside it.
+
+    Returns (outline_markdown, params) — params may include `template` and
+    `language`. Returns None if no marker-bearing message exists.
+    """
     for m in reversed(messages):
         if m.role is not SlideRole.ASSISTANT:
             continue
-        if _OUTLINE_READY_MARKER not in m.content:
+        match = _MARKER_RE.search(m.content)
+        if match is None:
             continue
-        return m.content.replace(_OUTLINE_READY_MARKER, "").strip()
+        body = (m.content[: match.start()] + m.content[match.end():]).strip()
+        params: dict[str, str] = {}
+        if match.group(1):
+            for pair in match.group(1).split():
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    params[k.strip()] = v.strip()
+        return body, params
     return None
 
 
@@ -276,7 +293,9 @@ async def stream_session(
                 yield _sse("token", {"text": token})
 
             content = "".join(collected)
-            outline_ready = _OUTLINE_READY_MARKER in content
+            # Detect with the regex so marker variants like
+            # `[OUTLINE_READY template=modern]` count too.
+            outline_ready = _MARKER_RE.search(content) is not None
 
             factory = async_session_factory()
             async with factory() as save_session:
@@ -326,12 +345,18 @@ async def render_session(
     s = await _load_owned_session(
         session, owner_user_id=user.id, session_id=session_id, with_messages=True
     )
-    outline_md = _extract_outline(list(s.messages))
-    if outline_md is None:
+    extracted = _extract_outline(list(s.messages))
+    if extracted is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="no_outline_ready")
+    outline_md, marker_params = extracted
     slide_blocks = _split_slide_blocks(outline_md)
     if not slide_blocks:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="outline_unparsable")
+
+    # Marker-supplied params override request body defaults — the LLM had
+    # the conversation context and chose them with the user.
+    template = marker_params.get("template") or body.template
+    language = marker_params.get("language") or body.language
 
     s.status = SlideStatus.RENDERING
     s.updated_at = started
@@ -342,8 +367,8 @@ async def render_session(
         result = await presenton.generate(
             slides_markdown=slide_blocks,
             n_slides=len(slide_blocks),
-            language=body.language,
-            template=body.template,
+            language=language,
+            template=template,
             export_as="pptx",
         )
         path = result.get("path")

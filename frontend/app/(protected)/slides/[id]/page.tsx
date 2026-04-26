@@ -234,15 +234,10 @@ export default function SlideSessionPage() {
     try {
       await downloadSlideSession(sessionId, session.title);
     } catch (err) {
-      setRenderState((cur) =>
-        cur
-          ? {
-              phase: "error",
-              elapsedSec: cur.phase === "rendered" ? (cur.elapsedSec ?? 0) : 0,
-              message: detailMessage(err),
-            }
-          : cur,
-      );
+      // Network or auth failure on the download. Surface inline with the
+      // existing stream-error banner; the persisted [RENDERED] message
+      // stays in place so the user can retry.
+      setStreamError(detailMessage(err));
     }
   }
 

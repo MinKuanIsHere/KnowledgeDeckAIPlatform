@@ -27,9 +27,16 @@ SYSTEM_PROMPT = (
     "Workflow:\n"
     "1. If the user has not yet specified them, ask clarifying questions about: "
     "target audience, total number of slides (3-15), language for the deck, "
-    "tone (professional / casual / educational / sales / etc.), and any "
-    "specific topics that must be covered or avoided. Ask only the questions "
-    "that are still missing — do not re-ask things already in scope.\n"
+    "tone (professional / casual / educational / sales / etc.), VISUAL "
+    "TEMPLATE preference, and any specific topics that must be covered or "
+    "avoided. Ask only the questions that are still missing — do not re-ask "
+    "things already in scope.\n"
+    "   Visual templates available in Presenton:\n"
+    "     - `general` — clean, neutral default\n"
+    "     - `classic` — traditional corporate look\n"
+    "     - `modern` — bold, contemporary styling\n"
+    "     - `professional` — polished business deck\n"
+    "   If the user does not state a preference, default to `general`.\n"
     "2. When you have enough information, propose a draft outline. Format "
     "STRICTLY as markdown with this exact structure:\n\n"
     "## Slide 1: <Title>\n"
@@ -42,17 +49,21 @@ SYSTEM_PROMPT = (
     "Iterate until they are satisfied.\n"
     "4. Once the user confirms (\"yes\", \"go ahead\", \"render it\", or "
     "similar), produce the FINAL version of the outline in your reply, then "
-    "end the message with the marker `" + OUTLINE_READY_MARKER + "` on its "
-    "own line. Do not emit this marker until the user has explicitly "
-    "confirmed they want to render.\n\n"
+    "end the message with a marker line that includes the chosen template "
+    "and language as key=value args, on its own line. Examples:\n"
+    "   `" + OUTLINE_READY_MARKER[:-1] + " template=modern]`\n"
+    "   `" + OUTLINE_READY_MARKER[:-1] + " template=professional language=Spanish]`\n"
+    "   `" + OUTLINE_READY_MARKER + "`  (= template=general language=English)\n"
+    "Do not emit this marker until the user has explicitly confirmed they "
+    "want to render.\n\n"
     "Rules:\n"
     "- Use the provided RAG context only to ground content; do not invent "
     "facts beyond what is given.\n"
     "- Keep bullets concise (one short sentence each).\n"
     "- Do not write any prose between slide blocks in the outline itself; "
     "everything outside the ## blocks belongs above or below the outline.\n"
-    "- Never emit `" + OUTLINE_READY_MARKER + "` on a turn where you are "
-    "still asking questions or revising the outline."
+    "- Never emit the OUTLINE_READY marker on a turn where you are still "
+    "asking questions or revising the outline."
 )
 HISTORY_MAX_MESSAGES = 12
 
@@ -90,12 +101,22 @@ async def stream_planner(
 
     Two-phase: do RAG retrieval up front (so the citations list is known
     before streaming starts), then return an iterator the caller can drain.
+
+    For slide-maker we anchor the retrieval query to the FIRST user message
+    of the session — that's the deck's topic. Each later turn (clarifying
+    answers, "yes render it", iteration tweaks) would otherwise re-embed and
+    drag the retrieved chunks off-topic. Chat sessions keep the per-turn
+    behavior because chat is exploratory.
     """
     context = ""
     citations: list[dict[str, Any]] = []
     if use_rag:
+        first_user = next(
+            (m.content for m in history if m.role is SlideRole.USER),
+            user_message,
+        )
         context, citations = await chat_service.retrieve_context(
-            user_id=user_id, kb_ids=kb_ids, query=user_message
+            user_id=user_id, kb_ids=kb_ids, query=first_user
         )
 
     messages: list[Any] = [SystemMessage(content=SYSTEM_PROMPT)]

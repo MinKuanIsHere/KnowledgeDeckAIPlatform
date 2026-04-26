@@ -29,6 +29,10 @@ export type SlideSessionDetail = SlideSession & {
 };
 
 export const OUTLINE_READY_MARKER = "[OUTLINE_READY]";
+// Matches the marker plus any optional `key=value` args inside the brackets,
+// e.g. `[OUTLINE_READY]`, `[OUTLINE_READY template=modern]`,
+// `[OUTLINE_READY template=professional language=Spanish]`.
+const OUTLINE_READY_RE = /\[OUTLINE_READY(?:\s+[^\]]+)?\]/;
 
 // --- Sessions CRUD ---
 
@@ -216,12 +220,14 @@ export async function downloadSlideSession(
   URL.revokeObjectURL(url);
 }
 
-/** Strips the OUTLINE_READY marker from a message body for display. */
+/** Strips the OUTLINE_READY marker (with or without args) from a message
+ * body for display. */
 export function stripOutlineReady(content: string): string {
-  return content.replace(OUTLINE_READY_MARKER, "").trimEnd();
+  return content.replace(OUTLINE_READY_RE, "").trimEnd();
 }
 
-/** True if the assistant message body contains the OUTLINE_READY marker. */
+/** True if the assistant message body contains the OUTLINE_READY marker
+ * (with or without args). */
 export function hasOutlineReady(content: string): boolean {
-  return content.includes(OUTLINE_READY_MARKER);
+  return OUTLINE_READY_RE.test(content);
 }

@@ -1,9 +1,9 @@
 "use client";
 
 import { isAxiosError } from "axios";
-import { Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { DropUpload } from "../../../../components/DropUpload";
 import { useKbStore } from "../../../../lib/kb-store";
@@ -25,6 +25,40 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+type SortKey = "uploaded" | "size" | "extension";
+type SortDir = "asc" | "desc";
+
+function sortFiles(
+  files: KnowledgeFile[],
+  key: SortKey,
+  dir: SortDir,
+): KnowledgeFile[] {
+  const sorted = [...files].sort((a, b) => {
+    switch (key) {
+      case "size":
+        return a.size_bytes - b.size_bytes;
+      case "extension":
+        return a.extension.localeCompare(b.extension) || a.filename.localeCompare(b.filename);
+      case "uploaded":
+      default:
+        return a.created_at.localeCompare(b.created_at);
+    }
+  });
+  return dir === "desc" ? sorted.reverse() : sorted;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -52,10 +86,28 @@ export default function KnowledgeBaseDetailPage() {
 
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
+  const [sortKey, setSortKey] = useState<SortKey>("uploaded");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const sortedFiles = useMemo(
+    () => sortFiles(files, sortKey, sortDir),
+    [files, sortKey, sortDir],
+  );
+
+  function flipSort(nextKey: SortKey) {
+    if (nextKey === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(nextKey);
+      // Sensible defaults: newest first for time, biggest first for size,
+      // alphabetical for type.
+      setSortDir(nextKey === "extension" ? "asc" : "desc");
+    }
+  }
 
   // Make sure the store is hydrated so we can resolve the KB by id even if
   // the user landed directly on this URL.
@@ -165,11 +217,17 @@ export default function KnowledgeBaseDetailPage() {
                 <h1 className="truncate text-xl font-semibold">
                   {kb?.name ?? "Loading…"}
                 </h1>
-                {kb?.description ? (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {kb.description}
-                  </div>
-                ) : null}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {kb ? (
+                    <span>Created {formatTimestamp(kb.created_at)}</span>
+                  ) : null}
+                  {kb?.description ? (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{kb.description}</span>
+                    </>
+                  ) : null}
+                </div>
               </>
             )}
           </div>
@@ -208,30 +266,60 @@ export default function KnowledgeBaseDetailPage() {
             No files yet.
           </div>
         ) : (
-          <ul className="divide-y divide-border rounded-md border border-border bg-white">
-            {files.map((f) => (
-              <li
-                key={f.id}
-                className="flex items-center justify-between px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm">{f.filename}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {f.extension.toUpperCase()} · {humanSize(f.size_bytes)} ·{" "}
-                    <StatusBadge status={f.status} error={f.status_error} />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteFile(f)}
-                  aria-label={`Delete ${f.filename}`}
-                  className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+          <div className="rounded-md border border-border bg-white">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs text-muted-foreground">
+              <span>
+                {files.length} {files.length === 1 ? "file" : "files"}
+              </span>
+              <div className="flex items-center gap-1">
+                <span>Sort:</span>
+                <SortButton
+                  label="Uploaded"
+                  active={sortKey === "uploaded"}
+                  dir={sortDir}
+                  onClick={() => flipSort("uploaded")}
+                />
+                <SortButton
+                  label="Size"
+                  active={sortKey === "size"}
+                  dir={sortDir}
+                  onClick={() => flipSort("size")}
+                />
+                <SortButton
+                  label="Type"
+                  active={sortKey === "extension"}
+                  dir={sortDir}
+                  onClick={() => flipSort("extension")}
+                />
+              </div>
+            </div>
+            <ul className="divide-y divide-border">
+              {sortedFiles.map((f) => (
+                <li
+                  key={f.id}
+                  className="flex items-center justify-between px-3 py-2"
                 >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{f.filename}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {f.extension.toUpperCase()} · {humanSize(f.size_bytes)} ·{" "}
+                      <StatusBadge status={f.status} error={f.status_error} /> ·
+                      {" "}
+                      Uploaded {formatTimestamp(f.created_at)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFile(f)}
+                    aria-label={`Delete ${f.filename}`}
+                    className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
     </section>
@@ -249,5 +337,38 @@ function StatusBadge({ status, error }: { status: string; error: string | null }
     <span className={tone} title={error ?? ""}>
       {STATUS_LABEL[status] ?? status}
     </span>
+  );
+}
+
+function SortButton({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-0.5 rounded px-2 py-0.5 ${
+        active
+          ? "bg-muted text-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      {label}
+      {active ? (
+        dir === "asc" ? (
+          <ArrowUp className="h-3 w-3" />
+        ) : (
+          <ArrowDown className="h-3 w-3" />
+        )
+      ) : null}
+    </button>
   );
 }
