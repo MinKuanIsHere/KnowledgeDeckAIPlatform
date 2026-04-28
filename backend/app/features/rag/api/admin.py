@@ -2,7 +2,8 @@
 
 `POST /admin/rag-reindex` is destructive: it drops the Qdrant collection
 and reindexes every non-deleted KnowledgeFile from the bytes still in
-MinIO. Used to migrate existing data after a vector-pipeline change
+configured object storage (MinIO or local filesystem). Used to migrate
+existing data after a vector-pipeline change
 (e.g., adding sparse vectors for hybrid search).
 
 Auth-only (any logged-in user) for MVP. In a real deployment this should
@@ -41,7 +42,7 @@ async def rag_reindex(
 ) -> ReindexResult:
     """Drops the Qdrant collection and re-ingests every non-deleted file.
 
-    Steps per file: fetch original bytes from MinIO -> parse -> chunk ->
+    Steps per file: fetch original bytes from object storage -> parse -> chunk ->
     dense embed (vLLM) -> sparse embed (BM25) -> upsert into the freshly
     rebuilt collection. Files already in FAILED state are skipped.
     """
@@ -67,7 +68,7 @@ async def rag_reindex(
             data = await minio.get_object(f.storage_key)
         except Exception as exc:
             logger.exception(
-                "reindex_minio_fetch_failed file_id=%s key=%s", f.id, f.storage_key
+                "reindex_storage_fetch_failed file_id=%s key=%s", f.id, f.storage_key
             )
             failed += 1
             failed_files.append({"id": f.id, "filename": f.filename, "error": str(exc)[:200]})

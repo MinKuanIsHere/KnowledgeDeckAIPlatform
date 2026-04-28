@@ -7,7 +7,6 @@ in MinIO.
 """
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import logging
@@ -480,8 +479,8 @@ async def render_session(
         await session.refresh(msg_row)
         return RenderResponse(session=_session_out(s), message=_message_out(msg_row))
 
-    # Persist the PPTX in MinIO under a stable key per session. New renders
-    # overwrite, matching the file upload key layout.
+    # Persist the PPTX in configured object storage under a stable key per
+    # session. New renders overwrite, matching the file upload key layout.
     minio = get_minio_client()
     key = f"slide-sessions/{session_id}/latest.pptx"
     await minio.put_object(
@@ -520,18 +519,8 @@ async def download_session(
     if s.generated_pptx_key is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not_rendered_yet")
 
-    minio = get_minio_client()
-    # minio-py exposes a streaming get; fetch the bytes via the underlying
-    # client. Wrapping with asyncio.to_thread for symmetry.
-    def _fetch() -> bytes:
-        response = minio._client.get_object(minio.bucket, s.generated_pptx_key)
-        try:
-            return response.read()
-        finally:
-            response.close()
-            response.release_conn()
-
-    pptx_bytes = await asyncio.to_thread(_fetch)
+    storage = get_minio_client()
+    pptx_bytes = await storage.get_object(s.generated_pptx_key)
     safe_title = s.title.replace('"', "'").strip() or f"deck-{s.id}"
     headers = {
         "Content-Disposition": f'attachment; filename="{safe_title}.pptx"',

@@ -21,12 +21,12 @@ services:
     volumes:
       # Read PPTX artifacts that Presenton wrote without proxying via HTTP.
       - presenton_data:/presenton_data:ro
+      # Used when STORAGE_BACKEND=local (single-machine filesystem mode).
+      - local_storage_data:/var/lib/knowledgedeck-storage
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_started
-      minio:
         condition: service_started
 
   postgres:
@@ -212,6 +212,7 @@ volumes:
   qdrant_data:
   presenton_data:
   minio_data:
+  local_storage_data:
   hf_cache:
 
 # Override the auto-created "<project>_default" network with an explicit

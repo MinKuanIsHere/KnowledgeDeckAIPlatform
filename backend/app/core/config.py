@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     minio_secret_key: str = "change-me"
     minio_bucket: str = "knowledgedeck"
     minio_secure: bool = False  # MVP runs MinIO over plain HTTP inside the compose network
+    # Object storage backend: "minio" (S3-compatible) or "local" (single-machine filesystem).
+    storage_backend: str = "minio"
+    local_storage_root: str = "/var/lib/knowledgedeck-storage"
 
     # 50 MiB hard cap on a single file upload.
     max_upload_bytes: int = 52_428_800

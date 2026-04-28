@@ -1,8 +1,6 @@
 import asyncio
+from pathlib import Path
 from typing import BinaryIO
-
-from minio import Minio
-from minio.error import S3Error
 
 from app.core.config import get_settings
 
@@ -24,6 +22,8 @@ class MinioClient:
         bucket: str,
         secure: bool,
     ) -> None:
+        from minio import Minio
+
         self._client = Minio(
             endpoint=endpoint,
             access_key=access_key,
@@ -75,6 +75,8 @@ class MinioClient:
 
     async def delete_object(self, key: str) -> None:
         def _impl() -> None:
+            from minio.error import S3Error
+
             try:
                 self._client.remove_object(self._bucket, key)
             except S3Error as e:
@@ -85,11 +87,70 @@ class MinioClient:
         await asyncio.to_thread(_impl)
 
 
-_client: MinioClient | None = None
+class LocalObjectStorageClient:
+    """Single-machine local filesystem storage.
+
+    Files are stored under:
+      {local_storage_root}/{minio_bucket}/{key}
+    """
+
+    def __init__(self, *, root: str, bucket: str) -> None:
+        self._root = Path(root)
+        self._bucket = bucket
+        self._base = self._root / bucket
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    async def ensure_bucket(self) -> None:
+        await asyncio.to_thread(self._base.mkdir, parents=True, exist_ok=True)
+
+    async def put_object(
+        self,
+        key: str,
+        data: BinaryIO,
+        length: int,
+        content_type: str,
+    ) -> None:
+        # `content_type` kept for API compatibility with MinIO backend.
+        _ = content_type
+
+        def _impl() -> None:
+            path = self._base / key
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = data.read(length)
+            with path.open("wb") as f:
+                f.write(payload)
+
+        await asyncio.to_thread(_impl)
+
+    async def get_object(self, key: str) -> bytes:
+        def _impl() -> bytes:
+            path = self._base / key
+            with path.open("rb") as f:
+                return f.read()
+
+        return await asyncio.to_thread(_impl)
+
+    async def delete_object(self, key: str) -> None:
+        def _impl() -> None:
+            path = self._base / key
+            if path.exists():
+                path.unlink()
+
+        await asyncio.to_thread(_impl)
 
 
-def get_minio_client() -> MinioClient:
-    """Process-wide MinioClient. Tests replace `_client` directly via conftest.
+StorageClient = MinioClient | LocalObjectStorageClient
+_client: StorageClient | None = None
+
+
+def get_minio_client() -> StorageClient:
+    """Process-wide object storage client.
+
+    - storage_backend=minio -> MinioClient
+    - storage_backend=local -> LocalObjectStorageClient
 
     Not thread-safe for first-call initialization. Safe in practice because
     the lifespan (single-threaded asyncio context) calls this before any
@@ -99,11 +160,17 @@ def get_minio_client() -> MinioClient:
     global _client
     if _client is None:
         s = get_settings()
-        _client = MinioClient(
-            endpoint=s.minio_endpoint,
-            access_key=s.minio_access_key,
-            secret_key=s.minio_secret_key,
-            bucket=s.minio_bucket,
-            secure=s.minio_secure,
-        )
+        if s.storage_backend == "local":
+            _client = LocalObjectStorageClient(
+                root=s.local_storage_root,
+                bucket=s.minio_bucket,
+            )
+        else:
+            _client = MinioClient(
+                endpoint=s.minio_endpoint,
+                access_key=s.minio_access_key,
+                secret_key=s.minio_secret_key,
+                bucket=s.minio_bucket,
+                secure=s.minio_secure,
+            )
     return _client

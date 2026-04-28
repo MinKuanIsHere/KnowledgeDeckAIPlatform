@@ -119,7 +119,7 @@ your question  ─┤  rewriter (chat-only, every turn)     │
               ▼                                          ▼
    ┌──────────────────────┐                ┌──────────────────────┐
    │ embed dense          │                │ embed sparse (BM25)  │
-   │ bge-m3 (1024-d)      │                │ Qdrant/bm25          │
+   │ bge-m3 (1024-d)      │                │ BM25-style sparse    │
    │ via vLLM /embeddings │                │ in-process           │
    └──────────┬───────────┘                └──────────┬───────────┘
               │                                       │
@@ -223,10 +223,10 @@ For the full pipeline implementation see [docs/ARCHITECTURE.md § RAG](docs/ARCH
 | Backend | FastAPI, SQLAlchemy 2.0 async, Pydantic, Alembic |
 | LLM | vLLM (OpenAI-compatible) — default Google Gemma 4 E4B |
 | Embedding | vLLM serving BAAI/bge-m3 (1024-d dense) |
-| Sparse | fastembed `Qdrant/bm25` (in-process) |
+| Sparse | dependency-light BM25-style hashing + Qdrant IDF (in-process) |
 | Reranker | vLLM `--runner pooling --convert classify` serving BAAI/bge-reranker-v2-m3 |
 | Vectors | Qdrant 1.12+ with named vectors + RRF fusion |
-| Object store | MinIO (S3-compatible) |
+| Object store | MinIO (S3-compatible) **or** local filesystem (`STORAGE_BACKEND=local`) |
 | Database | Postgres 16 |
 | Slide rendering | Presenton (`ghcr.io/presenton/presenton`) |
 
@@ -249,14 +249,14 @@ Open `.env` and at minimum set:
 - `INITIAL_USER_PASSWORD=<choose-one>`
 - `CORS_ORIGINS=http://localhost:3000` (or `http://<your-host>:3000` if accessing remotely)
 
-Defaults work for everything else (Qdrant / MinIO / vLLM / Presenton credentials are local-only).
+Defaults work for everything else (Qdrant / object-storage / vLLM / Presenton credentials are local-only).
 
 ### 2. Bring up the stack
 
-**Without GPU services** (Postgres / Qdrant / MinIO / Presenton / backend / frontend only — useful for iterating UI, but Chat / RAG / Slides won't work):
+**Without GPU services** (Postgres / Qdrant / Presenton / backend / frontend, and optionally MinIO — useful for iterating UI, but Chat / RAG / Slides won't work):
 
 ```bash
-docker compose up postgres qdrant minio presenton backend frontend
+docker compose up postgres qdrant presenton backend frontend
 ```
 
 **Full stack with GPU** (recommended):
@@ -304,7 +304,7 @@ docker compose --profile gpu down
 Other useful variants:
 
 ```bash
-# Same, plus delete all volumes (Postgres / MinIO / Qdrant / Presenton
+# Same, plus delete all volumes (Postgres / object storage / Qdrant / Presenton
 # data + the Hugging Face model cache). Destructive — only run if you
 # really want a clean slate.
 docker compose --profile gpu down -v
