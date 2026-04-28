@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.db.base import async_session_factory
+from app.db.base import async_session_factory, get_engine
+from app.db.models import Base
 from app.db.models import User
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,11 @@ async def seed_initial_user(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # SQLite mode: create schema on startup (no Alembic dependency).
+    if get_settings().database_url.startswith("sqlite"):
+        async with get_engine().begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
     factory = async_session_factory()
     async with factory() as session:
         await seed_initial_user(session)

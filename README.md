@@ -42,7 +42,7 @@ The codebase is organized so each user-facing module is a self-contained subtree
 
 | You want… | Backend take | Frontend take | Notes |
 |---|---|---|---|
-| 🐳 **Just the Docker / infra stack** (services + glue, no app logic) | `docker-compose.yml`, `.env.example`, `backend/Dockerfile`, `frontend/Dockerfile` | — | Postgres + MinIO + Qdrant + Presenton + 3 vLLM containers; the app pieces below plug into this |
+| 🐳 **Just the Docker / infra stack** (services + glue, no app logic) | `docker-compose.yml`, `.env.example`, `backend/Dockerfile`, `frontend/Dockerfile` | — | SQLite + local storage + Qdrant + Presenton + 3 vLLM containers; the app pieces below plug into this |
 | 🗂️ **KB ingest + RAG** (file upload → vector store, no chat UI) | `backend/app/shared/`, `backend/app/features/{rag,knowledge_bases}/`, `backend/app/db/` | `frontend/app/(protected)/knowledge-bases/`, `frontend/lib/{kb-store,knowledge-bases,api,auth-store}.ts`, `frontend/components/{DropUpload,AuthGuard,AppSidebar}.tsx` | The cleanest standalone feature; no upward deps on Chat or Slide |
 | 📚 **Just the RAG retrieval module** (as a library, against pre-existing data) | `backend/app/features/rag/` (services + admin reindex) + `backend/app/db/` (KnowledgeBase + KnowledgeFile models) | — | Treat `rag.retrieve_context(user_id, kb_ids, query)` as a black box |
 | 💬 **Chat** | KB + add `backend/app/features/chat/` | KB-frontend + `frontend/app/(protected)/page.tsx`, `frontend/lib/{chat-store,chat}.ts`, `components/ChatInput.tsx` | SSE streaming + multi-turn history + optional RAG |
@@ -227,7 +227,7 @@ For the full pipeline implementation see [docs/ARCHITECTURE.md § RAG](docs/ARCH
 | Reranker | vLLM `--runner pooling --convert classify` serving BAAI/bge-reranker-v2-m3 |
 | Vectors | Qdrant 1.12+ with named vectors + RRF fusion |
 | Object store | Local filesystem (`LOCAL_STORAGE_ROOT` + `STORAGE_BUCKET`) |
-| Database | Postgres 16 |
+| Database | SQLite |
 | Slide rendering | Presenton (`ghcr.io/presenton/presenton`) |
 
 ---
@@ -253,10 +253,10 @@ Defaults work for everything else (Qdrant / object-storage / vLLM / Presenton cr
 
 ### 2. Bring up the stack
 
-**Without GPU services** (Postgres / Qdrant / Presenton / backend / frontend, and optionally MinIO — useful for iterating UI, but Chat / RAG / Slides won't work):
+**Without GPU services** (SQLite / Qdrant / Presenton / backend / frontend — useful for iterating UI, but Chat / RAG / Slides won't work):
 
 ```bash
-docker compose up postgres qdrant presenton backend frontend
+docker compose up qdrant presenton backend frontend
 ```
 
 **Full stack with GPU** (recommended):
@@ -460,7 +460,7 @@ frontend/
 docs/
   ARCHITECTURE.md            ← Full system design + per-feature deep-dive
   API.md                     ← Endpoint reference + curl recipes
-docker-compose.yml           ← All services (postgres, qdrant, local storage volume, vllm × 3, presenton, backend, frontend)
+docker-compose.yml           ← All services (sqlite in backend, qdrant, local storage volume, vllm × 3, presenton, backend, frontend)
 .env.example                 ← Documented config template
 ```
 

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
 
     database_url: str = (
-        "postgresql+psycopg://knowledgedeck:change-me@knowledgedeck_postgres:5432/knowledgedeck"
+        "sqlite+aiosqlite:///./knowledgedeck.db"
     )
 
     initial_user_username: str = ""
