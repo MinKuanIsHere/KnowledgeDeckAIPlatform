@@ -226,7 +226,7 @@ For the full pipeline implementation see [docs/ARCHITECTURE.md § RAG](docs/ARCH
 | Sparse | dependency-light BM25-style hashing + Qdrant IDF (in-process) |
 | Reranker | vLLM `--runner pooling --convert classify` serving BAAI/bge-reranker-v2-m3 |
 | Vectors | Qdrant 1.12+ with named vectors + RRF fusion |
-| Object store | MinIO (S3-compatible) **or** local filesystem (`STORAGE_BACKEND=local`) |
+| Object store | Local filesystem (`LOCAL_STORAGE_ROOT` + `STORAGE_BUCKET`) |
 | Database | Postgres 16 |
 | Slide rendering | Presenton (`ghcr.io/presenton/presenton`) |
 
@@ -355,7 +355,7 @@ All three vLLM services default to `GPU_DEVICE=0` (single-GPU mode). To split ac
 
 ### Other services
 
-`MINIO_*`, `QDRANT_URL`, `PRESENTON_*`, and `DATABASE_URL` all have local-network defaults that work out of the box.
+`LOCAL_STORAGE_ROOT`, `STORAGE_BUCKET`, `QDRANT_URL`, `PRESENTON_*`, and `DATABASE_URL` all have local-network defaults that work out of the box.
 
 ---
 
@@ -460,7 +460,7 @@ frontend/
 docs/
   ARCHITECTURE.md            ← Full system design + per-feature deep-dive
   API.md                     ← Endpoint reference + curl recipes
-docker-compose.yml           ← All services (postgres, qdrant, minio, vllm × 3, presenton, backend, frontend)
+docker-compose.yml           ← All services (postgres, qdrant, local storage volume, vllm × 3, presenton, backend, frontend)
 .env.example                 ← Documented config template
 ```
 

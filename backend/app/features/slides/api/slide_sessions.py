@@ -26,7 +26,7 @@ from app.shared.api.deps import get_current_user
 from app.db.base import async_session_factory, get_db
 from app.db.models import SlideMessage, SlideRole, SlideSession, SlideStatus, User
 from app.features.slides.services import slide_chat_service
-from app.features.knowledge_bases.services.object_storage import get_minio_client
+from app.features.knowledge_bases.services.object_storage import get_storage_client
 from app.features.slides.services.presenton_client import PresentonError, get_presenton_client
 
 logger = logging.getLogger(__name__)
@@ -481,9 +481,9 @@ async def render_session(
 
     # Persist the PPTX in configured object storage under a stable key per
     # session. New renders overwrite, matching the file upload key layout.
-    minio = get_minio_client()
+    storage = get_storage_client()
     key = f"slide-sessions/{session_id}/latest.pptx"
-    await minio.put_object(
+    await storage.put_object(
         key,
         io.BytesIO(pptx_bytes),
         len(pptx_bytes),
@@ -519,7 +519,7 @@ async def download_session(
     if s.generated_pptx_key is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not_rendered_yet")
 
-    storage = get_minio_client()
+    storage = get_storage_client()
     pptx_bytes = await storage.get_object(s.generated_pptx_key)
     safe_title = s.title.replace('"', "'").strip() or f"deck-{s.id}"
     headers = {
