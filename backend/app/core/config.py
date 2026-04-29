@@ -46,7 +46,10 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"
     embedding_dim: int = 1024  # BAAI/bge-m3 outputs 1024-dim vectors
 
-    qdrant_url: str = "http://knowledgedeck_qdrant:6333"
+    # Local disk mode (no Qdrant server process): set qdrant_path and leave
+    # qdrant_url empty. If qdrant_path is empty, url mode is used.
+    qdrant_url: str = ""
+    qdrant_path: str = "./qdrant_data"
     qdrant_collection: str = "knowledgedeck"
 
     # RAG retrieval knobs.

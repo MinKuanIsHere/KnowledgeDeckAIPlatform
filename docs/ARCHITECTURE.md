@@ -612,7 +612,7 @@ All config lives in `.env`. Settings are loaded once at startup via Pydantic; ru
 | RAG knobs | `RAG_DENSE_TOP_K`, `RAG_FINAL_TOP_K`, `RAG_MIN_SCORE`, `RAG_RERANK_MIN_SCORE` |
 | Chunking | `CHUNK_CHARS`, `CHUNK_OVERLAP` |
 | Storage | `LOCAL_STORAGE_ROOT`, `STORAGE_BUCKET`, `MAX_UPLOAD_BYTES` |
-| Vectors | `QDRANT_URL`, `QDRANT_COLLECTION`, `EMBEDDING_DIM` |
+| Vectors | `QDRANT_PATH` (or `QDRANT_URL`), `QDRANT_COLLECTION`, `EMBEDDING_DIM` |
 | Slide rendering | `PRESENTON_URL`, `PRESENTON_USERNAME`, `PRESENTON_PASSWORD`, `PRESENTON_DATA_ROOT` |
 | Database | `DATABASE_URL` |
 | GPU placement | `GPU_DEVICE`, `VLLM_RERANK_GPU_DEVICE` |

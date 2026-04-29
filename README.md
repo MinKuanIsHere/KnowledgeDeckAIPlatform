@@ -355,7 +355,7 @@ All three vLLM services default to `GPU_DEVICE=0` (single-GPU mode). To split ac
 
 ### Other services
 
-`LOCAL_STORAGE_ROOT`, `STORAGE_BUCKET`, `QDRANT_URL`, `PRESENTON_*`, and `DATABASE_URL` all have local-network defaults that work out of the box.
+`LOCAL_STORAGE_ROOT`, `STORAGE_BUCKET`, `QDRANT_PATH`, `PRESENTON_*`, and `DATABASE_URL` all have local defaults that work out of the box.
 
 ---
 
